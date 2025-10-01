@@ -5,7 +5,7 @@ import { OpenRouterClient } from '@/lib/llm/openrouter';
  * Test API route for OpenRouter integration
  * GET /api/test-llm - Test basic LLM functionality
  */
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     // Check if API key is configured
     if (!process.env.OPENROUTER_API_KEY) {
