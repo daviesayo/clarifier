@@ -13,6 +13,11 @@
 # testing
 /coverage
 
+# database test files
+**/test-database/**
+**/api/test-*
+**/test-*
+
 # next.js
 /.next/
 /out/
