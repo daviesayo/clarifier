@@ -11,11 +11,10 @@ import type {
 } from './types'
 
 export class MessageService {
-  private supabase = createClient()
-
   async getMessage(messageId: number): Promise<QueryResult<Message>> {
     try {
-      const { data, error } = await this.supabase
+      const supabase = await createClient()
+      const { data, error } = await supabase
         .from('messages')
         .select('*')
         .eq('id', messageId)
@@ -34,7 +33,8 @@ export class MessageService {
     sort?: SortOptions
   ): Promise<QueryResultWithCount<Message[]>> {
     try {
-      let query = this.supabase
+      const supabase = await createClient()
+      let query = supabase
         .from('messages')
         .select('*', { count: 'exact' })
         .eq('session_id', sessionId)
@@ -73,7 +73,8 @@ export class MessageService {
 
   async createMessage(message: MessageInsert): Promise<QueryResult<Message>> {
     try {
-      const { data, error } = await this.supabase
+      const supabase = await createClient()
+      const { data, error } = await supabase
         .from('messages')
         .insert(message)
         .select()
@@ -87,7 +88,8 @@ export class MessageService {
 
   async updateMessage(messageId: number, updates: MessageUpdate): Promise<QueryResult<Message>> {
     try {
-      const { data, error } = await this.supabase
+      const supabase = await createClient()
+      const { data, error } = await supabase
         .from('messages')
         .update(updates)
         .eq('id', messageId)
@@ -102,7 +104,8 @@ export class MessageService {
 
   async deleteMessage(messageId: number): Promise<QueryResult<null>> {
     try {
-      const { error } = await this.supabase
+      const supabase = await createClient()
+      const { error } = await supabase
         .from('messages')
         .delete()
         .eq('id', messageId)
@@ -115,7 +118,8 @@ export class MessageService {
 
   async getMessagesByRole(sessionId: string, role: 'user' | 'assistant'): Promise<QueryResult<Message[]>> {
     try {
-      const { data, error } = await this.supabase
+      const supabase = await createClient()
+      const { data, error } = await supabase
         .from('messages')
         .select('*')
         .eq('session_id', sessionId)
@@ -130,7 +134,8 @@ export class MessageService {
 
   async getConversationHistory(sessionId: string): Promise<QueryResult<Message[]>> {
     try {
-      const { data, error } = await this.supabase
+      const supabase = await createClient()
+      const { data, error } = await supabase
         .from('messages')
         .select('*')
         .eq('session_id', sessionId)

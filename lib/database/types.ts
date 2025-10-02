@@ -1,18 +1,29 @@
 // Re-export types for easier imports
 export type {
   Database,
-  Profile,
-  ProfileInsert,
-  ProfileUpdate,
-  Session,
-  SessionInsert,
-  SessionUpdate,
-  Message,
-  MessageInsert,
-  MessageUpdate,
-  MessageRole,
-  ProfileTier,
 } from '@/types/supabase'
+
+// Import Database type for use in this file
+import type { Database } from '@/types/supabase'
+
+// Helper types for common operations
+export type Profile = Database['public']['Tables']['profiles']['Row']
+export type ProfileInsert = Database['public']['Tables']['profiles']['Insert']
+export type ProfileUpdate = Database['public']['Tables']['profiles']['Update']
+
+export type Session = Database['public']['Tables']['sessions']['Row']
+export type SessionInsert = Database['public']['Tables']['sessions']['Insert']
+export type SessionUpdate = Database['public']['Tables']['sessions']['Update']
+
+export type Message = Database['public']['Tables']['messages']['Row']
+export type MessageInsert = Database['public']['Tables']['messages']['Insert']
+export type MessageUpdate = Database['public']['Tables']['messages']['Update']
+
+// Role type for messages
+export type MessageRole = "user" | "assistant"
+
+// Tier type for profiles
+export type ProfileTier = "free" | "premium"
 
 // Additional utility types
 export type DatabaseTable = keyof Database['public']['Tables']

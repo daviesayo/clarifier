@@ -11,11 +11,10 @@ import type {
 } from './types'
 
 export class SessionService {
-  private supabase = createClient()
-
   async getSession(sessionId: string): Promise<QueryResult<Session>> {
     try {
-      const { data, error } = await this.supabase
+      const supabase = await createClient()
+      const { data, error } = await supabase
         .from('sessions')
         .select('*')
         .eq('id', sessionId)
@@ -34,7 +33,8 @@ export class SessionService {
     sort?: SortOptions
   ): Promise<QueryResultWithCount<Session[]>> {
     try {
-      let query = this.supabase
+      const supabase = await createClient()
+      let query = supabase
         .from('sessions')
         .select('*', { count: 'exact' })
         .eq('user_id', userId)
@@ -73,7 +73,8 @@ export class SessionService {
 
   async createSession(session: SessionInsert): Promise<QueryResult<Session>> {
     try {
-      const { data, error } = await this.supabase
+      const supabase = await createClient()
+      const { data, error } = await supabase
         .from('sessions')
         .insert(session)
         .select()
@@ -87,7 +88,8 @@ export class SessionService {
 
   async updateSession(sessionId: string, updates: SessionUpdate): Promise<QueryResult<Session>> {
     try {
-      const { data, error } = await this.supabase
+      const supabase = await createClient()
+      const { data, error } = await supabase
         .from('sessions')
         .update(updates)
         .eq('id', sessionId)
@@ -102,7 +104,8 @@ export class SessionService {
 
   async deleteSession(sessionId: string): Promise<QueryResult<null>> {
     try {
-      const { error } = await this.supabase
+      const supabase = await createClient()
+      const { error } = await supabase
         .from('sessions')
         .delete()
         .eq('id', sessionId)
@@ -113,9 +116,10 @@ export class SessionService {
     }
   }
 
-  async updateSessionOutput(sessionId: string, finalBrief: string, finalOutput: any): Promise<QueryResult<Session>> {
+  async updateSessionOutput(sessionId: string, finalBrief: string, finalOutput: Record<string, unknown>): Promise<QueryResult<Session>> {
     try {
-      const { data, error } = await this.supabase
+      const supabase = await createClient()
+      const { data, error } = await supabase
         .from('sessions')
         .update({ 
           final_brief: finalBrief,
@@ -133,7 +137,8 @@ export class SessionService {
 
   async getSessionsByDomain(userId: string, domain: string): Promise<QueryResult<Session[]>> {
     try {
-      const { data, error } = await this.supabase
+      const supabase = await createClient()
+      const { data, error } = await supabase
         .from('sessions')
         .select('*')
         .eq('user_id', userId)

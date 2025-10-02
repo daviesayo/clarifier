@@ -2,11 +2,10 @@ import { createClient } from '@/lib/supabase/server'
 import type { Profile, ProfileInsert, ProfileUpdate, QueryResult } from './types'
 
 export class ProfileService {
-  private supabase = createClient()
-
   async getProfile(userId: string): Promise<QueryResult<Profile>> {
     try {
-      const { data, error } = await this.supabase
+      const supabase = await createClient()
+      const { data, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
@@ -20,7 +19,8 @@ export class ProfileService {
 
   async createProfile(profile: ProfileInsert): Promise<QueryResult<Profile>> {
     try {
-      const { data, error } = await this.supabase
+      const supabase = await createClient()
+      const { data, error } = await supabase
         .from('profiles')
         .insert(profile)
         .select()
@@ -34,7 +34,8 @@ export class ProfileService {
 
   async updateProfile(userId: string, updates: ProfileUpdate): Promise<QueryResult<Profile>> {
     try {
-      const { data, error } = await this.supabase
+      const supabase = await createClient()
+      const { data, error } = await supabase
         .from('profiles')
         .update(updates)
         .eq('id', userId)
@@ -49,9 +50,22 @@ export class ProfileService {
 
   async incrementUsageCount(userId: string): Promise<QueryResult<Profile>> {
     try {
-      const { data, error } = await this.supabase
+      const supabase = await createClient()
+      
+      // First get the current profile to increment the count
+      const { data: currentProfile, error: fetchError } = await supabase
         .from('profiles')
-        .update({ usage_count: this.supabase.raw('usage_count + 1') })
+        .select('usage_count')
+        .eq('id', userId)
+        .single()
+
+      if (fetchError) {
+        return { data: null, error: fetchError }
+      }
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .update({ usage_count: (currentProfile?.usage_count || 0) + 1 })
         .eq('id', userId)
         .select()
         .single()
@@ -64,7 +78,8 @@ export class ProfileService {
 
   async updateTier(userId: string, tier: 'free' | 'premium'): Promise<QueryResult<Profile>> {
     try {
-      const { data, error } = await this.supabase
+      const supabase = await createClient()
+      const { data, error } = await supabase
         .from('profiles')
         .update({ tier })
         .eq('id', userId)
