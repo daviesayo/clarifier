@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 import { checkRateLimit, incrementUsage, getRateLimitHeaders } from '@/lib/rateLimit';
+import { continueConversation, ConversationMessage, ValidationError as ConversationValidationError } from '@/lib/llm/conversationLoop';
 
 // TypeScript interfaces
 export interface ChatRequest {
@@ -32,8 +33,9 @@ export interface ErrorResponse {
 const ChatRequestSchema = z.object({
   sessionId: z.string().uuid().optional(),
   message: z.string().min(1).max(10000),
-  domain: z.enum(['business', 'product', 'creative', 'research']).optional(),
+  domain: z.enum(['business', 'product', 'creative', 'research', 'coding']).optional(),
   generateNow: z.boolean().optional(),
+  intensity: z.enum(['basic', 'deep']).optional(),
 });
 
 // Database types (imported for future use)
@@ -65,7 +67,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
       );
     }
 
-    const { sessionId, message, domain, generateNow } = validationResult.data;
+    const { sessionId, message, domain, generateNow, intensity } = validationResult.data;
 
     // Initialize Supabase client
     const supabase = await createClient();
@@ -168,14 +170,104 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
       );
     }
 
-    // TODO: Implement LLM orchestration in future phases
-    // For now, return a placeholder response
-    const responseMessage = generateNow 
-      ? `Generation mode: Processing your request for ${domain} domain...`
-      : `Questioning mode: I understand you're working on something related to ${domain}. Let me ask you some clarifying questions...`;
+    // Retrieve conversation history for this session
+    const { data: messagesData, error: historyError } = await supabase
+      .from('messages')
+      .select('role, content')
+      .eq('session_id', currentSessionId)
+      .order('created_at', { ascending: true });
 
-    // Determine if session is completed (for now, only when generateNow is true)
-    const isCompleted = generateNow || false;
+    if (historyError) {
+      return NextResponse.json(
+        { error: 'Failed to retrieve conversation history' },
+        { status: 500 }
+      );
+    }
+
+    // Get session domain if not provided (for continuing sessions)
+    let currentDomain = domain;
+    if (!currentDomain) {
+      const { data: sessionData } = await supabase
+        .from('sessions')
+        .select('domain')
+        .eq('id', currentSessionId)
+        .single();
+      
+      currentDomain = sessionData?.domain;
+    }
+
+    if (!currentDomain) {
+      return NextResponse.json(
+        { error: 'Domain not found for session' },
+        { status: 400 }
+      );
+    }
+
+    // Generate response using LangChain conversation loop
+    let responseMessage: string;
+    let isCompleted = false;
+
+    if (generateNow) {
+      // TODO: Implement generation phase in future
+      responseMessage = `Generation mode: Processing your request for ${currentDomain} domain...`;
+      isCompleted = true;
+    } else {
+      try {
+        // Prepare conversation history (exclude the current user message)
+        const conversationHistory: ConversationMessage[] = messagesData
+          .slice(0, -1) // Exclude the current message we just saved
+          .map(msg => ({
+            role: msg.role as 'user' | 'assistant',
+            content: msg.content,
+          }));
+
+        // Get AI response using conversation loop
+        responseMessage = await continueConversation({
+          domain: currentDomain,
+          conversationHistory,
+          userMessage: message,
+          intensity: intensity || 'deep',
+        });
+      } catch (error: any) {
+        console.error('Conversation loop error:', error);
+        
+        // Handle specific conversation errors
+        if (error instanceof ConversationValidationError) {
+          return NextResponse.json(
+            { 
+              error: 'Invalid conversation data',
+              code: 'CONVERSATION_VALIDATION_ERROR',
+              details: error.message
+            },
+            { status: 400 }
+          );
+        }
+
+        // For other errors, return generic error
+        return NextResponse.json(
+          { 
+            error: 'Failed to generate response',
+            code: 'CONVERSATION_ERROR',
+            details: error.message || 'An error occurred while processing your message'
+          },
+          { status: 500 }
+        );
+      }
+    }
+
+    // Save assistant response to database
+    const { error: assistantMessageError } = await supabase
+      .from('messages')
+      .insert({
+        session_id: currentSessionId,
+        role: 'assistant',
+        content: responseMessage,
+      });
+
+    if (assistantMessageError) {
+      console.error('Failed to save assistant message:', assistantMessageError);
+      // Don't fail the request, just log the error
+    }
 
     // Increment usage count when session completes
     if (isCompleted && !sessionId) {
