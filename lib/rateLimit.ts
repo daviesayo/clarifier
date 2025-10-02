@@ -77,8 +77,8 @@ export async function checkRateLimit(userId: string): Promise<RateLimitResult> {
       allowed,
       remaining,
       limit: limits.sessions,
-      tier: normalizedTier,
-      resetTime: undefined // No time-based reset for session limits
+      tier: normalizedTier
+      // resetTime omitted - no time-based reset for session limits
     }
   } catch (error) {
     // Log error for debugging
@@ -89,8 +89,8 @@ export async function checkRateLimit(userId: string): Promise<RateLimitResult> {
       allowed: false,
       remaining: 0,
       limit: 0,
-      tier: 'free',
-      resetTime: undefined
+      tier: 'free'
+      // resetTime omitted - no time-based reset for session limits
     }
   }
 }
@@ -110,11 +110,22 @@ export async function incrementUsage(userId: string): Promise<QueryResult<Profil
 
     const supabase = await createClient()
     
-    // Use atomic increment to prevent race conditions
+    // First get the current profile
+    const { data: currentProfile, error: fetchError } = await supabase
+      .from('profiles')
+      .select('usage_count')
+      .eq('id', userId)
+      .single()
+    
+    if (fetchError) {
+      return { data: null, error: fetchError }
+    }
+    
+    // Then increment the usage count
     const { data, error } = await supabase
       .from('profiles')
       .update({ 
-        usage_count: supabase.raw('usage_count + 1')
+        usage_count: currentProfile.usage_count + 1
       })
       .eq('id', userId)
       .select('*')

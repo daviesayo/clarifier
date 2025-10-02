@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
-import { checkRateLimit, incrementUsage, getRateLimitHeaders, createRateLimitError } from '@/lib/rateLimit';
-import type { RateLimitResult } from '@/lib/database/types';
+import { checkRateLimit, incrementUsage, getRateLimitHeaders } from '@/lib/rateLimit';
 
 // TypeScript interfaces
 export interface ChatRequest {
@@ -86,7 +85,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
       const rateLimitResult = await checkRateLimit(user.id);
       
       if (!rateLimitResult.allowed) {
-        const rateLimitError = createRateLimitError(rateLimitResult);
         const headers = getRateLimitHeaders(rateLimitResult);
         
         return NextResponse.json(

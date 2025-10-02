@@ -52,11 +52,22 @@ export class ProfileService {
     try {
       const supabase = await createClient()
       
-      // Use atomic increment to prevent race conditions
+      // First get the current profile
+      const { data: currentProfile, error: fetchError } = await supabase
+        .from('profiles')
+        .select('usage_count')
+        .eq('id', userId)
+        .single()
+      
+      if (fetchError) {
+        return { data: null, error: fetchError }
+      }
+      
+      // Then increment the usage count
       const { data, error } = await supabase
         .from('profiles')
         .update({ 
-          usage_count: supabase.raw('usage_count + 1')
+          usage_count: currentProfile.usage_count + 1
         })
         .eq('id', userId)
         .select('*')
