@@ -99,6 +99,11 @@ const DEFAULT_MODEL = 'google/gemini-2.5-flash';
 const SYNTHESIS_TEMPERATURE = 0.3;
 
 /**
+ * Timeout for synthesis requests (milliseconds)
+ */
+const SYNTHESIS_TIMEOUT = 6000; // 6 seconds to work within API timeout constraints
+
+/**
  * Maximum retries for API calls
  */
 const MAX_RETRIES = 3;
@@ -268,6 +273,7 @@ function createSynthesisClient(): ChatOpenAI {
       baseURL: 'https://openrouter.ai/api/v1',
     },
     temperature: SYNTHESIS_TEMPERATURE,
+    timeout: SYNTHESIS_TIMEOUT,
   });
 }
 

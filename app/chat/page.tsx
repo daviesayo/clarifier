@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { ChatWindow } from '@/components/ChatWindow';
+import GenerationOutput from '@/components/GenerationOutput';
 import { useChat, ChatApiError } from '@/lib/hooks/useChat';
 import { Domain } from '@/lib/prompts';
 import { Button } from '@/components/ui/button';
@@ -11,6 +12,7 @@ import { RefreshCw } from 'lucide-react';
 export default function ChatPage() {
   const [selectedDomain, setSelectedDomain] = useState<Domain | null>(null);
   const [showDomainSelector, setShowDomainSelector] = useState(true);
+  const [finalOutput, setFinalOutput] = useState<{ brief: string; generatedIdeas: Record<string, unknown> } | null>(null);
 
   const {
     messages,
@@ -32,8 +34,9 @@ export default function ChatPage() {
     onError: (error: ChatApiError) => {
       console.error('Chat error:', error);
     },
-    onSessionComplete: (finalOutput) => {
-      console.log('Session completed with output:', finalOutput);
+    onSessionComplete: (output) => {
+      console.log('Session completed with output:', output);
+      setFinalOutput(output);
     },
   });
 
@@ -62,6 +65,7 @@ export default function ChatPage() {
     clearMessages();
     setShowDomainSelector(true);
     setSelectedDomain(null);
+    setFinalOutput(null);
   };
 
   const handleRetry = () => {
@@ -225,22 +229,37 @@ export default function ChatPage() {
           </div>
         )}
 
+        {/* Generation Output Display */}
+        {finalOutput && (
+          <div className="flex-1 overflow-y-auto bg-gray-50 dark:bg-gray-900">
+            <GenerationOutput
+              domain={selectedDomain || 'unknown'}
+              brief={finalOutput.brief}
+              output={finalOutput.generatedIdeas}
+              onStartNewSession={handleStartNewSession}
+              className="min-h-full"
+            />
+          </div>
+        )}
+
         {/* Chat Window */}
-        <div className="flex-1 overflow-hidden">
-          <ChatWindow
-            {...(sessionId && { sessionId })}
-            messages={messages}
-            isLoading={isLoading}
-            isGenerating={isGenerating}
-            canGenerate={canGenerate}
-            questionCount={questionCount}
-            intensity={intensity}
-            onIntensityChange={setIntensity}
-            onSendMessage={sendMessage}
-            onGenerateIdeas={generateIdeas}
-            className="h-full"
-          />
-        </div>
+        {!finalOutput && (
+          <div className="flex-1 overflow-hidden">
+            <ChatWindow
+              {...(sessionId && { sessionId })}
+              messages={messages}
+              isLoading={isLoading}
+              isGenerating={isGenerating}
+              canGenerate={canGenerate}
+              questionCount={questionCount}
+              intensity={intensity}
+              onIntensityChange={setIntensity}
+              onSendMessage={sendMessage}
+              onGenerateIdeas={generateIdeas}
+              className="h-full"
+            />
+          </div>
+        )}
       </div>
     </div>
   );
