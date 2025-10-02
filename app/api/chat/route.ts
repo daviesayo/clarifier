@@ -271,10 +271,13 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
         const conversationDuration = Date.now() - conversationStartTime;
         console.log(`Conversation loop completed in ${conversationDuration}ms`);
 
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        const errorCode = (error as { code?: string })?.code;
+        
         console.error('Conversation loop error:', {
-          error: error.message,
-          code: error.code,
+          error: errorMessage,
+          code: errorCode,
           sessionId: currentSessionId,
           domain: currentDomain,
           historyLength: messagesData?.length || 0
@@ -297,7 +300,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
           { 
             error: 'Unable to generate response. Please try again or start a new session.',
             code: 'CONVERSATION_ERROR',
-            details: error.message || 'An error occurred while processing your message'
+            details: errorMessage
           },
           { status: 500 }
         );

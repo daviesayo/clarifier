@@ -60,7 +60,7 @@ export interface ConversationLog {
   domain: string;
   conversationId?: string;
   message: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 // ============================================================================
@@ -319,8 +319,8 @@ function handleLLMResponse(response: BaseMessage): string {
   // If content is an array (complex message), extract text
   if (Array.isArray(response.content)) {
     const textContent = response.content
-      .filter((part: any) => typeof part === 'string' || part.type === 'text')
-      .map((part: any) => typeof part === 'string' ? part : part.text)
+      .filter((part: unknown) => typeof part === 'string' || (part as { type?: string })?.type === 'text')
+      .map((part: unknown) => typeof part === 'string' ? part : (part as { text?: string })?.text)
       .join(' ');
     const trimmed = textContent.trim();
     if (trimmed.length === 0) {
@@ -370,8 +370,8 @@ async function invokeWithRetry(
       });
 
       return response;
-    } catch (error: any) {
-      lastError = error;
+    } catch (error: unknown) {
+      lastError = error instanceof Error ? error : new Error('Unknown error');
 
       log({
         timestamp: new Date().toISOString(),
@@ -379,23 +379,25 @@ async function invokeWithRetry(
         domain: 'llm',
         message: `LLM invocation failed (attempt ${attempt + 1}/${RETRY_CONFIG.maxRetries})`,
         metadata: {
-          error: error.message,
+          error: error instanceof Error ? error.message : 'Unknown error',
           attempt: attempt + 1,
         },
       });
 
       // Check if error is rate limiting
-      if (error.status === 429 || error.message?.includes('rate limit')) {
+      const errorStatus = (error as { status?: number })?.status;
+      const errorMessage = error instanceof Error ? error.message : '';
+      if (errorStatus === 429 || errorMessage.includes('rate limit')) {
         // Wait longer for rate limit errors
         delay = Math.min(delay * 2, RETRY_CONFIG.maxDelay);
       }
 
       // Don't retry on validation or authentication errors
-      if (error.status === 400 || error.status === 401 || error.status === 403) {
+      if (errorStatus === 400 || errorStatus === 401 || errorStatus === 403) {
         throw new ConversationError(
-          `LLM API error: ${error.message}`,
-          error.status === 401 ? 'AUTH_ERROR' : 'API_ERROR',
-          error
+          `LLM API error: ${errorMessage}`,
+          errorStatus === 401 ? 'AUTH_ERROR' : 'API_ERROR',
+          error instanceof Error ? error : new Error(errorMessage)
         );
       }
 
@@ -408,9 +410,9 @@ async function invokeWithRetry(
   }
 
   throw new ConversationError(
-    `Failed to get LLM response after ${RETRY_CONFIG.maxRetries} attempts: ${lastError?.message}`,
+    `Failed to get LLM response after ${RETRY_CONFIG.maxRetries} attempts: ${lastError instanceof Error ? lastError.message : 'Unknown error'}`,
     'MAX_RETRIES_EXCEEDED',
-    lastError
+    lastError instanceof Error ? lastError : new Error('Unknown error')
   );
 }
 
@@ -527,7 +529,7 @@ export async function continueConversation(
 
     return content;
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     const duration = Date.now() - startTime;
 
     log({
@@ -537,8 +539,8 @@ export async function continueConversation(
       message: 'Conversation failed',
       metadata: {
         duration,
-        error: error.message,
-        errorCode: error.code,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        errorCode: (error as { code?: string })?.code,
       },
     });
 
@@ -562,7 +564,7 @@ export async function continueConversation(
     throw new ConversationError(
       'An unexpected error occurred during conversation',
       'UNKNOWN_ERROR',
-      error
+      error instanceof Error ? error : new Error('Unknown error')
     );
   }
 }
