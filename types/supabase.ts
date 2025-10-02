@@ -77,6 +77,7 @@ export type Database = {
           final_brief: string | null
           final_output: Json | null
           id: string
+          status: string
           user_id: string | null
         }
         Insert: {
@@ -85,6 +86,7 @@ export type Database = {
           final_brief?: string | null
           final_output?: Json | null
           id?: string
+          status?: string
           user_id?: string | null
         }
         Update: {
@@ -93,6 +95,7 @@ export type Database = {
           final_brief?: string | null
           final_output?: Json | null
           id?: string
+          status?: string
           user_id?: string | null
         }
         Relationships: []

@@ -25,6 +25,9 @@ export type MessageRole = "user" | "assistant"
 // Tier type for profiles (support both 'premium' and 'pro' for backward compatibility)
 export type ProfileTier = "free" | "premium" | "pro"
 
+// Status type for sessions
+export type SessionStatus = "questioning" | "generating" | "completed"
+
 // Additional utility types
 export type DatabaseTable = keyof Database['public']['Tables']
 

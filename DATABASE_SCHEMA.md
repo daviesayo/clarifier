@@ -30,6 +30,7 @@ Stores idea generation sessions with domain-specific context.
 | `id` | UUID | PRIMARY KEY, DEFAULT gen_random_uuid() | Session identifier |
 | `user_id` | UUID | NOT NULL, FK to auth.users(id) | Owner of the session |
 | `domain` | TEXT | NOT NULL | Session domain/category |
+| `status` | TEXT | NOT NULL, DEFAULT 'questioning', CHECK (status IN ('questioning', 'generating', 'completed')) | Current phase of the session |
 | `created_at` | TIMESTAMPTZ | DEFAULT NOW() | Session creation timestamp |
 | `final_brief` | TEXT | NULL | Generated brief from conversation |
 | `final_output` | JSONB | NULL | Structured output data |
@@ -63,6 +64,7 @@ The schema includes several indexes for optimal query performance:
 
 ### Filtering Indexes
 - `idx_sessions_domain` - Sessions by domain
+- `idx_sessions_status` - Sessions by status
 - `idx_messages_role` - Messages by role
 
 ### Ordering Indexes
@@ -71,6 +73,7 @@ The schema includes several indexes for optimal query performance:
 
 ### Composite Indexes
 - `idx_sessions_user_domain` - User sessions with domain filter
+- `idx_sessions_user_status` - User sessions with status filter
 - `idx_messages_session_role` - Session messages with role filter
 
 ## Row Level Security (RLS)

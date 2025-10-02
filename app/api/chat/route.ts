@@ -16,6 +16,10 @@ export interface ChatResponse {
   sessionId: string;
   responseMessage: string;
   isCompleted: boolean; // True when generation phase is done
+  status: 'questioning' | 'generating' | 'completed'; // Current session status
+  questionCount?: number; // Number of questions asked so far
+  canGenerate?: boolean; // Whether user can trigger generation
+  suggestedTermination?: boolean; // Whether AI suggests readiness to generate
   error?: string;
 }
 
@@ -49,6 +53,59 @@ const ChatRequestSchema = z.object({
  * Longer histories are truncated to the most recent messages
  */
 const MAX_CONVERSATION_HISTORY_LENGTH = 20;
+
+/**
+ * Minimum number of questions required before allowing generation
+ */
+const MIN_QUESTIONS_THRESHOLD = 3;
+
+/**
+ * Keywords that indicate AI is suggesting readiness to proceed to generation
+ */
+const TERMINATION_KEYWORDS = [
+  'shall we proceed',
+  'ready to generate',
+  'ready to create',
+  'enough information',
+  'sufficient context',
+  'move forward',
+  'move on to generating',
+  'begin generating',
+  'start generating',
+];
+
+/**
+ * Detects if the AI response suggests termination (readiness to generate)
+ * @param response The AI response text
+ * @returns Object with suggestion flag and confidence score
+ */
+function detectTerminationSuggestion(response: string): { suggested: boolean; confidence: number } {
+  const lowerResponse = response.toLowerCase();
+  let matchCount = 0;
+  
+  for (const keyword of TERMINATION_KEYWORDS) {
+    if (lowerResponse.includes(keyword)) {
+      matchCount++;
+    }
+  }
+  
+  // Calculate confidence based on number of matches
+  const confidence = Math.min(matchCount / 2, 1); // Max confidence at 2+ matches
+  const suggested = confidence >= 0.5; // Threshold for flagging as suggestion
+  
+  return { suggested, confidence };
+}
+
+/**
+ * Counts the number of questions asked by the assistant in the conversation
+ * @param messages Array of messages
+ * @returns Number of assistant messages that are questions
+ */
+function countQuestions(messages: { role: string; content: string }[]): number {
+  return messages.filter(msg => 
+    msg.role === 'assistant' && msg.content.includes('?')
+  ).length;
+}
 
 /**
  * POST /api/chat
@@ -115,6 +172,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
     }
 
     let currentSessionId: string;
+    let currentSessionStatus: 'questioning' | 'generating' | 'completed' = 'questioning';
 
     // Handle session management
     if (sessionId) {
@@ -134,6 +192,19 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
       }
 
       currentSessionId = session.id;
+      currentSessionStatus = (session.status as 'questioning' | 'generating' | 'completed') || 'questioning';
+
+      // Validate session status - cannot send messages to completed sessions
+      if (currentSessionStatus === 'completed') {
+        return NextResponse.json(
+          { 
+            error: 'Session is already completed',
+            code: 'SESSION_COMPLETED',
+            details: 'Cannot add messages to a completed session'
+          },
+          { status: 400 }
+        );
+      }
     } else {
       // Create new session
       if (!domain) {
@@ -148,6 +219,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
         .insert({
           user_id: user.id,
           domain: domain,
+          status: 'questioning',
         })
         .select()
         .single();
@@ -160,6 +232,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
       }
 
       currentSessionId = newSession.id;
+      currentSessionStatus = 'questioning';
     }
 
     // Save user message to database
@@ -224,11 +297,42 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
       );
     }
 
+    // Count questions asked so far for threshold check
+    const questionCount = countQuestions(messagesData);
+    const canGenerate = questionCount >= MIN_QUESTIONS_THRESHOLD;
+
     // Generate response using LangChain conversation loop
     let responseMessage: string;
     let isCompleted = false;
+    let suggestedTermination = false;
 
     if (generateNow) {
+      // Check minimum question threshold before allowing generation
+      if (!canGenerate) {
+        return NextResponse.json(
+          { 
+            error: 'Insufficient questions answered',
+            code: 'MIN_QUESTIONS_NOT_MET',
+            details: `At least ${MIN_QUESTIONS_THRESHOLD} questions must be answered before generating. Current count: ${questionCount}`,
+            message: `Please answer at least ${MIN_QUESTIONS_THRESHOLD - questionCount} more question(s) before generating ideas.`
+          },
+          { status: 400 }
+        );
+      }
+
+      // Update session status to generating
+      const { error: statusUpdateError } = await supabase
+        .from('sessions')
+        .update({ status: 'generating' })
+        .eq('id', currentSessionId);
+
+      if (statusUpdateError) {
+        console.error('Failed to update session status:', statusUpdateError);
+        // Don't fail the request, just log the error
+      } else {
+        currentSessionStatus = 'generating';
+      }
+
       // TODO: Implement generation phase in future
       responseMessage = `Generation mode: Processing your request for ${currentDomain} domain...`;
       isCompleted = true;
@@ -270,6 +374,14 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
         // Log conversation loop performance
         const conversationDuration = Date.now() - conversationStartTime;
         console.log(`Conversation loop completed in ${conversationDuration}ms`);
+
+        // Detect if AI suggests termination (readiness to generate)
+        const terminationDetection = detectTerminationSuggestion(responseMessage);
+        suggestedTermination = terminationDetection.suggested;
+        
+        if (suggestedTermination) {
+          console.log(`AI suggested termination detected with confidence ${terminationDetection.confidence} for session ${currentSessionId}`);
+        }
 
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -338,6 +450,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
       sessionId: currentSessionId,
       responseMessage,
       isCompleted,
+      status: currentSessionStatus,
+      questionCount,
+      canGenerate,
+      suggestedTermination,
     });
 
   } catch (error) {
