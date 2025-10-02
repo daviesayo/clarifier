@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 import { checkRateLimit, incrementUsage, getRateLimitHeaders } from '@/lib/rateLimit';
 import { continueConversation, ConversationMessage, ValidationError as ConversationValidationError } from '@/lib/llm/conversationLoop';
+import { synthesizeBrief, SynthesisError, ValidationError as SynthesisValidationError } from '@/lib/llm/synthesizeBrief';
 
 // TypeScript interfaces
 export interface ChatRequest {
@@ -320,22 +321,88 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
         );
       }
 
-      // Update session status to generating
-      const { error: statusUpdateError } = await supabase
-        .from('sessions')
-        .update({ status: 'generating' })
-        .eq('id', currentSessionId);
+      try {
+        // Step 1: Synthesize conversation into brief
+        console.log(`Starting context synthesis for session ${currentSessionId}`);
+        const synthesisStartTime = Date.now();
 
-      if (statusUpdateError) {
-        console.error('Failed to update session status:', statusUpdateError);
-        // Don't fail the request, just log the error
-      } else {
+        // Prepare conversation history for synthesis
+        const conversationHistory: ConversationMessage[] = messagesData.map(msg => ({
+          role: msg.role as 'user' | 'assistant',
+          content: msg.content,
+        }));
+
+        const brief = await synthesizeBrief({
+          domain: currentDomain,
+          conversationHistory,
+        });
+
+        const synthesisDuration = Date.now() - synthesisStartTime;
+        console.log(`Context synthesis completed in ${synthesisDuration}ms for session ${currentSessionId}`);
+
+        // Step 2: Update session with brief and status
+        const { error: updateError } = await supabase
+          .from('sessions')
+          .update({ 
+            status: 'generating',
+            final_brief: brief
+          })
+          .eq('id', currentSessionId);
+
+        if (updateError) {
+          console.error('Failed to update session with brief:', updateError);
+          return NextResponse.json(
+            { 
+              error: 'Failed to save synthesis results',
+              code: 'DATABASE_UPDATE_ERROR',
+              details: 'Unable to update session with synthesized brief'
+            },
+            { status: 500 }
+          );
+        }
+
         currentSessionStatus = 'generating';
-      }
 
-      // TODO: Implement generation phase in future
-      responseMessage = `Generation mode: Processing your request for ${currentDomain} domain...`;
-      isCompleted = true;
+        // TODO: Implement generation phase in future (will use the brief)
+        responseMessage = `Context synthesis complete! Your ${currentDomain} brief has been created and we're ready to generate ideas. (Generation phase coming soon)`;
+        isCompleted = true;
+
+      } catch (error: unknown) {
+        console.error('Synthesis failed:', error);
+
+        // Handle specific error types
+        if (error instanceof SynthesisValidationError) {
+          return NextResponse.json(
+            { 
+              error: 'Invalid conversation data for synthesis',
+              code: 'SYNTHESIS_VALIDATION_ERROR',
+              details: error.message
+            },
+            { status: 400 }
+          );
+        }
+
+        if (error instanceof SynthesisError) {
+          return NextResponse.json(
+            { 
+              error: 'Failed to synthesize conversation',
+              code: 'SYNTHESIS_ERROR',
+              details: error.message
+            },
+            { status: 500 }
+          );
+        }
+
+        // Generic error
+        return NextResponse.json(
+          { 
+            error: 'An error occurred during synthesis',
+            code: 'SYNTHESIS_UNKNOWN_ERROR',
+            details: error instanceof Error ? error.message : 'Unknown error'
+          },
+          { status: 500 }
+        );
+      }
     } else {
       try {
         // Prepare conversation history (exclude the current user message)
