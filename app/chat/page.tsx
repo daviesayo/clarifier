@@ -161,7 +161,7 @@ export default function ChatPage() {
         {/* Chat Window */}
         <div className="flex-1 overflow-hidden">
           <ChatWindow
-            sessionId={sessionId || undefined}
+            {...(sessionId && { sessionId })}
             messages={messages}
             isLoading={isLoading}
             isGenerating={isGenerating}

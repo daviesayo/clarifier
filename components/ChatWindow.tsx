@@ -44,6 +44,7 @@ export interface TypingIndicatorProps {
 export interface GenerateIdeasButtonProps {
   onGenerate: () => void;
   disabled?: boolean;
+  isGenerating?: boolean;
   questionCount?: number;
   minQuestions?: number;
   className?: string;
@@ -67,6 +68,7 @@ export const TypingIndicator: React.FC<TypingIndicatorProps> = ({ className }) =
 export const GenerateIdeasButton: React.FC<GenerateIdeasButtonProps> = ({
   onGenerate,
   disabled = false,
+  isGenerating = false,
   questionCount = 0,
   minQuestions = 3,
   className
@@ -200,6 +202,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             <GenerateIdeasButton
               onGenerate={handleGenerateIdeas}
               disabled={!canGenerate || isGenerating}
+              isGenerating={isGenerating}
               questionCount={questionCount}
               minQuestions={3}
             />
