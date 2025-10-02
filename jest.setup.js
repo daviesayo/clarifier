@@ -1,4 +1,9 @@
 import '@testing-library/jest-dom'
+import { TextEncoder, TextDecoder } from 'util'
+
+// Polyfill Web APIs for Node.js environment
+global.TextEncoder = TextEncoder
+global.TextDecoder = TextDecoder
 
 // Mock Next.js router
 jest.mock('next/navigation', () => ({
@@ -22,10 +27,4 @@ jest.mock('next/navigation', () => ({
 
 // Mock Supabase client - moved to individual test files
 
-// Mock console methods to avoid noise in tests
-global.console = {
-  ...console,
-  log: jest.fn(),
-  error: jest.fn(),
-  warn: jest.fn(),
-}
+// Don't mock console globally - let individual tests mock when needed

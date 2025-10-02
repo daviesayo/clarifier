@@ -1,30 +1,80 @@
+// Mock Next.js server APIs before importing
+jest.mock('next/server', () => ({
+  NextRequest: jest.fn(),
+  NextResponse: {
+    json: jest.fn((data, init) => ({
+      json: async () => data,
+      status: init?.status || 200,
+      headers: init?.headers || new Map(),
+    })),
+  },
+}));
+
 import { POST } from '@/app/api/chat/route';
+
+// Helper to create chainable mock
+const createChainableMock = (finalValue: any) => {
+  const chain: any = {
+    select: jest.fn(function() { return chain; }),
+    insert: jest.fn(function() { 
+      // For insert operations without select, return directly
+      return Promise.resolve(finalValue);
+    }),
+    update: jest.fn(function() { return chain; }),
+    eq: jest.fn(function() { return chain; }),
+    order: jest.fn(() => Promise.resolve(finalValue)),
+    single: jest.fn(() => Promise.resolve(finalValue)),
+  };
+  
+  // Override insert to support chaining when followed by select()
+  const originalInsert = chain.insert;
+  chain.insert = jest.fn(function() {
+    // Return a new chain that can handle .select()
+    const insertChain: any = {
+      select: jest.fn(function() {
+        return {
+          single: jest.fn(() => Promise.resolve(finalValue)),
+        };
+      }),
+    };
+    // But also make it thenable for direct resolution
+    insertChain.then = (resolve: any) => Promise.resolve(finalValue).then(resolve);
+    insertChain.catch = (reject: any) => Promise.resolve(finalValue).catch(reject);
+    return insertChain;
+  });
+  
+  return chain;
+};
 
 // Mock Supabase client
 const mockSupabaseClient = {
   auth: {
     getUser: jest.fn(),
   },
-  from: jest.fn(() => ({
-    select: jest.fn(() => ({
-      eq: jest.fn(() => ({
-        single: jest.fn(),
-      })),
-    })),
-    insert: jest.fn(() => ({
-      select: jest.fn(() => ({
-        single: jest.fn(),
-      })),
-    })),
-    update: jest.fn(() => ({
-      eq: jest.fn(),
-    })),
-  })),
+  from: jest.fn(() => createChainableMock({ data: null, error: null })),
 };
 
 // Mock the Supabase server client
 jest.mock('@/lib/supabase/server', () => ({
   createClient: jest.fn(() => mockSupabaseClient),
+}));
+
+// Mock rate limiting
+jest.mock('@/lib/rateLimit', () => ({
+  checkRateLimit: jest.fn(() => Promise.resolve({ allowed: true, remaining: 5, limit: 10, tier: 'free' })),
+  incrementUsage: jest.fn(() => Promise.resolve({ error: null })),
+  getRateLimitHeaders: jest.fn(() => ({})),
+}));
+
+// Mock conversation loop
+jest.mock('@/lib/llm/conversationLoop', () => ({
+  continueConversation: jest.fn(() => Promise.resolve('Mock AI response')),
+  ValidationError: class ValidationError extends Error {
+    constructor(message: string, public field: string) {
+      super(message);
+      this.name = 'ValidationError';
+    }
+  },
 }));
 
 // Mock NextRequest for Node.js environment
@@ -38,6 +88,10 @@ describe('/api/chat', () => {
   });
 
   describe('POST /api/chat', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
     it('should return 400 for invalid request data', async () => {
       const request = createMockRequest({
         message: '', // Invalid: empty message
@@ -82,55 +136,43 @@ describe('/api/chat', () => {
       expect(data.error).toBe('Authentication required');
     });
 
-    it('should return 404 when user profile not found', async () => {
+    it('should return 400 when domain is required for new session', async () => {
       mockSupabaseClient.auth.getUser.mockResolvedValue({
         data: { user: { id: 'user-123' } },
         error: null,
       });
 
-      mockSupabaseClient.from.mockReturnValue({
-        select: jest.fn(() => ({
-          eq: jest.fn(() => ({
-            single: jest.fn().mockResolvedValue({
-              data: null,
-              error: { message: 'Profile not found' },
-            }),
-          })),
-        })),
-      });
-
       const request = createMockRequest({
-          message: 'Test message',
-          domain: 'business',
+        message: 'Test message',
+        // Missing domain for new session
       });
 
       const response = await POST(request);
       const data = await response.json();
 
-      expect(response.status).toBe(404);
-      expect(data.error).toBe('User profile not found');
+      expect(response.status).toBe(400);
+      expect(data.error).toBe('Domain is required for new sessions');
     });
 
     it('should return 429 when rate limit exceeded', async () => {
+      const { checkRateLimit } = require('@/lib/rateLimit');
+      
       mockSupabaseClient.auth.getUser.mockResolvedValue({
         data: { user: { id: 'user-123' } },
         error: null,
       });
 
-      mockSupabaseClient.from.mockReturnValue({
-        select: jest.fn(() => ({
-          eq: jest.fn(() => ({
-            single: jest.fn().mockResolvedValue({
-              data: { id: 'user-123', tier: 'free', usage_count: 10 }, // At limit
-              error: null,
-            }),
-          })),
-        })),
+      // Mock rate limit exceeded
+      checkRateLimit.mockResolvedValueOnce({
+        allowed: false,
+        remaining: 0,
+        limit: 10,
+        tier: 'free'
       });
 
       const request = createMockRequest({
-          message: 'Test message',
-          domain: 'business',
+        message: 'Test message',
+        domain: 'business',
       });
 
       const response = await POST(request);
@@ -146,31 +188,27 @@ describe('/api/chat', () => {
         error: null,
       });
 
-      mockSupabaseClient.from.mockReturnValue({
-        select: jest.fn(() => ({
-          eq: jest.fn(() => ({
-            single: jest.fn().mockResolvedValue({
-              data: { id: 'user-123', tier: 'free', usage_count: 5 },
-              error: null,
-            }),
-          })),
-        })),
-        insert: jest.fn(() => ({
-          select: jest.fn(() => ({
-            single: jest.fn().mockResolvedValue({
-              data: { id: 'session-123', user_id: 'user-123', domain: 'business' },
-              error: null,
-            }),
-          })),
-        })),
-        update: jest.fn(() => ({
-          eq: jest.fn().mockResolvedValue({ error: null }),
-        })),
+      // Mock session creation
+      mockSupabaseClient.from.mockImplementation((table: string) => {
+        if (table === 'sessions') {
+          return createChainableMock({
+            data: { id: 'session-123', user_id: 'user-123', domain: 'business' },
+            error: null,
+          });
+        } else if (table === 'messages') {
+          const chain = createChainableMock({
+            data: [{ role: 'user', content: 'Test message' }],
+            error: null,
+          });
+          chain.insert.mockResolvedValue({ data: null, error: null });
+          return chain;
+        }
+        return createChainableMock({ data: null, error: null });
       });
 
       const request = createMockRequest({
-          message: 'Test message',
-          domain: 'business',
+        message: 'Test message',
+        domain: 'business',
       });
 
       const response = await POST(request);
@@ -178,7 +216,7 @@ describe('/api/chat', () => {
 
       expect(response.status).toBe(200);
       expect(data.sessionId).toBe('session-123');
-      expect(data.responseMessage).toContain('Questioning mode');
+      expect(data.responseMessage).toBeDefined();
       expect(data.isCompleted).toBe(false);
     });
 
@@ -188,36 +226,26 @@ describe('/api/chat', () => {
         error: null,
       });
 
-      // Mock all database calls with a generic mock
+      // Mock all database calls
       mockSupabaseClient.from.mockImplementation((table: string) => {
-        if (table === 'profiles') {
-          return {
-            select: jest.fn(() => ({
-              eq: jest.fn(() => ({
-                single: jest.fn().mockResolvedValue({
-                  data: { id: 'user-123', tier: 'free', usage_count: 5 },
-                  error: null,
-                }),
-              })),
-            })),
-          };
-        } else if (table === 'sessions') {
-          return {
-            select: jest.fn(() => ({
-              eq: jest.fn(() => ({
-                single: jest.fn().mockResolvedValue({
-                  data: { id: '123e4567-e89b-12d3-a456-426614174000', user_id: 'user-123', domain: 'business' },
-                  error: null,
-                }),
-              })),
-            })),
-          };
+        if (table === 'sessions') {
+          return createChainableMock({
+            data: { id: '123e4567-e89b-12d3-a456-426614174000', user_id: 'user-123', domain: 'business' },
+            error: null,
+          });
         } else if (table === 'messages') {
-          return {
-            insert: jest.fn().mockResolvedValue({ error: null }),
-          };
+          const chain = createChainableMock({
+            data: [
+              { role: 'user', content: 'Previous message' },
+              { role: 'assistant', content: 'Previous response' },
+              { role: 'user', content: 'Test message' }
+            ],
+            error: null,
+          });
+          chain.insert.mockResolvedValue({ data: null, error: null });
+          return chain;
         }
-        return {};
+        return createChainableMock({ data: null, error: null });
       });
 
       const request = createMockRequest({
@@ -228,13 +256,9 @@ describe('/api/chat', () => {
       const response = await POST(request);
       const data = await response.json();
 
-      if (response.status !== 200) {
-        console.log('Error response:', data);
-      }
-
       expect(response.status).toBe(200);
       expect(data.sessionId).toBe('123e4567-e89b-12d3-a456-426614174000');
-      expect(data.responseMessage).toContain('Questioning mode');
+      expect(data.responseMessage).toBeDefined();
     });
 
     it('should return 404 for non-existent session', async () => {
@@ -243,32 +267,19 @@ describe('/api/chat', () => {
         error: null,
       });
 
-      // Mock profile lookup
-      mockSupabaseClient.from.mockReturnValueOnce({
-        select: jest.fn(() => ({
-          eq: jest.fn(() => ({
-            single: jest.fn().mockResolvedValue({
-              data: { id: 'user-123', tier: 'free', usage_count: 5 },
-              error: null,
-            }),
-          })),
-        })),
-      });
-
       // Mock session not found
-      mockSupabaseClient.from.mockReturnValueOnce({
-        select: jest.fn(() => ({
-          eq: jest.fn(() => ({
-            single: jest.fn().mockResolvedValue({
-              data: null,
-              error: { message: 'Session not found' },
-            }),
-          })),
-        })),
+      mockSupabaseClient.from.mockImplementation((table: string) => {
+        if (table === 'sessions') {
+          return createChainableMock({
+            data: null,
+            error: { message: 'Session not found' },
+          });
+        }
+        return createChainableMock({ data: null, error: null });
       });
 
       const request = createMockRequest({
-        sessionId: 'non-existent-session',
+        sessionId: '123e4567-e89b-12d3-a456-426614174000',
         message: 'Test message',
       });
 
@@ -285,40 +296,22 @@ describe('/api/chat', () => {
         error: null,
       });
 
-      // Mock profile lookup
-      mockSupabaseClient.from.mockReturnValueOnce({
-        select: jest.fn(() => ({
-          eq: jest.fn(() => ({
-            single: jest.fn().mockResolvedValue({
-              data: { id: 'user-123', tier: 'free', usage_count: 5 },
-              error: null,
-            }),
-          })),
-        })),
-      });
-
-      // Mock session creation
-      mockSupabaseClient.from.mockReturnValueOnce({
-        insert: jest.fn(() => ({
-          select: jest.fn(() => ({
-            single: jest.fn().mockResolvedValue({
-              data: { id: 'session-123', user_id: 'user-123', domain: 'business' },
-              error: null,
-            }),
-          })),
-        })),
-      });
-
-      // Mock usage count update
-      mockSupabaseClient.from.mockReturnValueOnce({
-        update: jest.fn(() => ({
-          eq: jest.fn().mockResolvedValue({ error: null }),
-        })),
-      });
-
-      // Mock message insert
-      mockSupabaseClient.from.mockReturnValueOnce({
-        insert: jest.fn().mockResolvedValue({ error: null }),
+      // Mock session creation and message handling
+      mockSupabaseClient.from.mockImplementation((table: string) => {
+        if (table === 'sessions') {
+          return createChainableMock({
+            data: { id: 'session-123', user_id: 'user-123', domain: 'business' },
+            error: null,
+          });
+        } else if (table === 'messages') {
+          const chain = createChainableMock({
+            data: [{ role: 'user', content: 'Test message' }],
+            error: null,
+          });
+          chain.insert.mockResolvedValue({ data: null, error: null });
+          return chain;
+        }
+        return createChainableMock({ data: null, error: null });
       });
 
       const request = createMockRequest({
@@ -332,6 +325,7 @@ describe('/api/chat', () => {
 
       expect(response.status).toBe(200);
       expect(data.responseMessage).toContain('Generation mode');
+      expect(data.isCompleted).toBe(true);
     });
 
     it('should return 500 for internal server error', async () => {
@@ -346,8 +340,479 @@ describe('/api/chat', () => {
       const data = await response.json();
 
       expect(response.status).toBe(500);
-      expect(data.error).toBe('Internal server error');
+      expect(data.error).toContain('unexpected error');
       expect(data.code).toBe('INTERNAL_ERROR');
+    });
+  });
+
+  describe('Conversation Loop Enhancements', () => {
+    const { continueConversation } = require('@/lib/llm/conversationLoop');
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      
+      // Default mock for authenticated user
+      mockSupabaseClient.auth.getUser.mockResolvedValue({
+        data: { user: { id: 'user-123' } },
+        error: null,
+      });
+    });
+
+    describe('First Message Handling', () => {
+      it('should handle first message with empty conversation history', async () => {
+        // Mock session creation
+        mockSupabaseClient.from.mockImplementation((table: string) => {
+          if (table === 'sessions') {
+            return {
+              insert: jest.fn(() => ({
+                select: jest.fn(() => ({
+                  single: jest.fn().mockResolvedValue({
+                    data: { id: 'session-123', user_id: 'user-123', domain: 'business' },
+                    error: null,
+                  }),
+                })),
+              })),
+            };
+          } else if (table === 'messages') {
+            return {
+              insert: jest.fn().mockResolvedValue({ error: null }),
+              select: jest.fn(() => ({
+                eq: jest.fn(() => ({
+                  order: jest.fn().mockResolvedValue({
+                    data: [{ role: 'user', content: 'First message' }],
+                    error: null,
+                  }),
+                })),
+              })),
+            };
+          }
+          return {};
+        });
+
+        const request = createMockRequest({
+          message: 'First message',
+          domain: 'business',
+        });
+
+        const response = await POST(request);
+        const data = await response.json();
+
+        expect(response.status).toBe(200);
+        expect(continueConversation).toHaveBeenCalledWith(
+          expect.objectContaining({
+            conversationHistory: [], // Empty history for first message
+            userMessage: 'First message',
+            domain: 'business',
+          })
+        );
+      });
+
+      it('should log first message for monitoring', async () => {
+        const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+        mockSupabaseClient.from.mockImplementation((table: string) => {
+          if (table === 'sessions') {
+            return {
+              insert: jest.fn(() => ({
+                select: jest.fn(() => ({
+                  single: jest.fn().mockResolvedValue({
+                    data: { id: 'session-123', user_id: 'user-123', domain: 'creative' },
+                    error: null,
+                  }),
+                })),
+              })),
+            };
+          } else if (table === 'messages') {
+            return {
+              insert: jest.fn().mockResolvedValue({ error: null }),
+              select: jest.fn(() => ({
+                eq: jest.fn(() => ({
+                  order: jest.fn().mockResolvedValue({
+                    data: [{ role: 'user', content: 'First message' }],
+                    error: null,
+                  }),
+                })),
+              })),
+            };
+          }
+          return {};
+        });
+
+        const request = createMockRequest({
+          message: 'First message',
+          domain: 'creative',
+        });
+
+        await POST(request);
+
+        expect(consoleSpy).toHaveBeenCalledWith(
+          expect.stringContaining('First message in session')
+        );
+        consoleSpy.mockRestore();
+      });
+    });
+
+    describe('Long Conversation History Handling', () => {
+      it('should truncate conversation history exceeding 20 messages', async () => {
+        // Create 25 messages (should be truncated to 20)
+        const messages = Array.from({ length: 25 }, (_, i) => ({
+          role: i % 2 === 0 ? 'user' : 'assistant',
+          content: `Message ${i + 1}`,
+        }));
+
+        mockSupabaseClient.from.mockImplementation((table: string) => {
+          if (table === 'sessions') {
+            return createChainableMock({
+              data: { id: 'session-123', user_id: 'user-123', domain: 'product' },
+              error: null,
+            });
+          } else if (table === 'messages') {
+            const chain = createChainableMock({
+              data: messages,
+              error: null,
+            });
+            chain.insert.mockReturnValue(Promise.resolve({ data: null, error: null }));
+            return chain;
+          }
+          return createChainableMock({ data: null, error: null });
+        });
+
+        const request = createMockRequest({
+          sessionId: 'session-123',
+          message: 'New message',
+        });
+
+        const response = await POST(request);
+        expect(response.status).toBe(200);
+
+        // Verify that continueConversation was called with truncated history
+        expect(continueConversation).toHaveBeenCalledWith(
+          expect.objectContaining({
+            conversationHistory: expect.arrayContaining([
+              expect.objectContaining({ role: expect.any(String) })
+            ]),
+          })
+        );
+
+        const call = continueConversation.mock.calls[0][0];
+        expect(call.conversationHistory.length).toBeLessThanOrEqual(20);
+      });
+
+      it('should log truncation event', async () => {
+        const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+        // Create 25 messages
+        const messages = Array.from({ length: 25 }, (_, i) => ({
+          role: i % 2 === 0 ? 'user' : 'assistant',
+          content: `Message ${i + 1}`,
+        }));
+
+        mockSupabaseClient.from.mockImplementation((table: string) => {
+          if (table === 'sessions') {
+            return createChainableMock({
+              data: { id: 'session-123', user_id: 'user-123', domain: 'product' },
+              error: null,
+            });
+          } else if (table === 'messages') {
+            const chain = createChainableMock({
+              data: messages,
+              error: null,
+            });
+            chain.insert.mockReturnValue(Promise.resolve({ data: null, error: null }));
+            return chain;
+          }
+          return createChainableMock({ data: null, error: null });
+        });
+
+        const request = createMockRequest({
+          sessionId: 'session-123',
+          message: 'New message',
+        });
+
+        await POST(request);
+
+        expect(consoleSpy).toHaveBeenCalledWith(
+          expect.stringContaining('Conversation history truncated')
+        );
+        consoleSpy.mockRestore();
+      });
+    });
+
+    describe('Performance Logging', () => {
+      it('should log conversation loop performance metrics', async () => {
+        const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+        mockSupabaseClient.from.mockImplementation((table: string) => {
+          if (table === 'sessions') {
+            return {
+              insert: jest.fn(() => ({
+                select: jest.fn(() => ({
+                  single: jest.fn().mockResolvedValue({
+                    data: { id: 'session-123', user_id: 'user-123', domain: 'research' },
+                    error: null,
+                  }),
+                })),
+              })),
+            };
+          } else if (table === 'messages') {
+            return {
+              insert: jest.fn().mockResolvedValue({ error: null }),
+              select: jest.fn(() => ({
+                eq: jest.fn(() => ({
+                  order: jest.fn().mockResolvedValue({
+                    data: [{ role: 'user', content: 'Test message' }],
+                    error: null,
+                  }),
+                })),
+              })),
+            };
+          }
+          return {};
+        });
+
+        const request = createMockRequest({
+          message: 'Test message',
+          domain: 'research',
+        });
+
+        await POST(request);
+
+        expect(consoleSpy).toHaveBeenCalledWith(
+          expect.stringContaining('Conversation loop completed in')
+        );
+        expect(consoleSpy).toHaveBeenCalledWith(
+          expect.stringContaining('Chat API request completed in')
+        );
+        consoleSpy.mockRestore();
+      });
+
+      it('should log conversation history length', async () => {
+        const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+        const messages = [
+          { role: 'user', content: 'Message 1' },
+          { role: 'assistant', content: 'Response 1' },
+          { role: 'user', content: 'Message 2' },
+        ];
+
+        mockSupabaseClient.from.mockImplementation((table: string) => {
+          if (table === 'sessions') {
+            return createChainableMock({
+              data: { id: 'session-123', user_id: 'user-123', domain: 'coding' },
+              error: null,
+            });
+          } else if (table === 'messages') {
+            const chain = createChainableMock({
+              data: messages,
+              error: null,
+            });
+            chain.insert.mockReturnValue(Promise.resolve({ data: null, error: null }));
+            return chain;
+          }
+          return createChainableMock({ data: null, error: null });
+        });
+
+        const request = createMockRequest({
+          sessionId: 'session-123',
+          message: 'New message',
+        });
+
+        await POST(request);
+
+        expect(consoleSpy).toHaveBeenCalledWith(
+          expect.stringContaining('Conversation history retrieved: 3 messages')
+        );
+        consoleSpy.mockRestore();
+      });
+    });
+
+    describe('Enhanced Error Handling', () => {
+      it('should handle conversation validation errors with user-friendly messages', async () => {
+        const { ValidationError } = require('@/lib/llm/conversationLoop');
+        continueConversation.mockRejectedValueOnce(
+          new ValidationError('Invalid message format', 'message')
+        );
+
+        mockSupabaseClient.from.mockImplementation((table: string) => {
+          if (table === 'sessions') {
+            return {
+              insert: jest.fn(() => ({
+                select: jest.fn(() => ({
+                  single: jest.fn().mockResolvedValue({
+                    data: { id: 'session-123', user_id: 'user-123', domain: 'business' },
+                    error: null,
+                  }),
+                })),
+              })),
+            };
+          } else if (table === 'messages') {
+            return {
+              insert: jest.fn().mockResolvedValue({ error: null }),
+              select: jest.fn(() => ({
+                eq: jest.fn(() => ({
+                  order: jest.fn().mockResolvedValue({
+                    data: [{ role: 'user', content: 'Test' }],
+                    error: null,
+                  }),
+                })),
+              })),
+            };
+          }
+          return {};
+        });
+
+        const request = createMockRequest({
+          message: 'Test message',
+          domain: 'business',
+        });
+
+        const response = await POST(request);
+        const data = await response.json();
+
+        expect(response.status).toBe(400);
+        expect(data.error).toContain('Invalid conversation data');
+        expect(data.code).toBe('CONVERSATION_VALIDATION_ERROR');
+      });
+
+      it('should handle conversation loop errors with helpful messages', async () => {
+        continueConversation.mockRejectedValueOnce(
+          new Error('LLM service unavailable')
+        );
+
+        mockSupabaseClient.from.mockImplementation((table: string) => {
+          if (table === 'sessions') {
+            return {
+              insert: jest.fn(() => ({
+                select: jest.fn(() => ({
+                  single: jest.fn().mockResolvedValue({
+                    data: { id: 'session-123', user_id: 'user-123', domain: 'product' },
+                    error: null,
+                  }),
+                })),
+              })),
+            };
+          } else if (table === 'messages') {
+            return {
+              insert: jest.fn().mockResolvedValue({ error: null }),
+              select: jest.fn(() => ({
+                eq: jest.fn(() => ({
+                  order: jest.fn().mockResolvedValue({
+                    data: [{ role: 'user', content: 'Test' }],
+                    error: null,
+                  }),
+                })),
+              })),
+            };
+          }
+          return {};
+        });
+
+        const request = createMockRequest({
+          message: 'Test message',
+          domain: 'product',
+        });
+
+        const response = await POST(request);
+        const data = await response.json();
+
+        expect(response.status).toBe(500);
+        expect(data.error).toContain('Unable to generate response');
+        expect(data.code).toBe('CONVERSATION_ERROR');
+      });
+
+      it('should log detailed error information for debugging', async () => {
+        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+        continueConversation.mockRejectedValueOnce(
+          new Error('Test error')
+        );
+
+        mockSupabaseClient.from.mockImplementation((table: string) => {
+          if (table === 'sessions') {
+            return {
+              insert: jest.fn(() => ({
+                select: jest.fn(() => ({
+                  single: jest.fn().mockResolvedValue({
+                    data: { id: 'session-123', user_id: 'user-123', domain: 'creative' },
+                    error: null,
+                  }),
+                })),
+              })),
+            };
+          } else if (table === 'messages') {
+            return {
+              insert: jest.fn().mockResolvedValue({ error: null }),
+              select: jest.fn(() => ({
+                eq: jest.fn(() => ({
+                  order: jest.fn().mockResolvedValue({
+                    data: [{ role: 'user', content: 'Test' }],
+                    error: null,
+                  }),
+                })),
+              })),
+            };
+          }
+          return {};
+        });
+
+        const request = createMockRequest({
+          message: 'Test message',
+          domain: 'creative',
+        });
+
+        await POST(request);
+
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          'Conversation loop error:',
+          expect.objectContaining({
+            sessionId: 'session-123',
+            domain: 'creative',
+          })
+        );
+        consoleErrorSpy.mockRestore();
+      });
+    });
+
+    describe('History Retrieval Error Handling', () => {
+      it('should provide user-friendly error when history retrieval fails', async () => {
+        let callCount = 0;
+        mockSupabaseClient.from.mockImplementation((table: string) => {
+          if (table === 'sessions') {
+            return createChainableMock({
+              data: { id: 'session-123', user_id: 'user-123', domain: 'business' },
+              error: null,
+            });
+          } else if (table === 'messages') {
+            callCount++;
+            if (callCount === 1) {
+              // First call: insert user message - should succeed
+              const insertChain: any = {
+                then: (resolve: any) => Promise.resolve({ data: null, error: null }).then(resolve),
+                catch: (reject: any) => Promise.resolve({ data: null, error: null }).catch(reject),
+              };
+              return { insert: jest.fn(() => insertChain) };
+            } else {
+              // Second call: retrieve history - should fail
+              return createChainableMock({
+                data: null,
+                error: { message: 'Database connection failed' },
+              });
+            }
+          }
+          return createChainableMock({ data: null, error: null });
+        });
+
+        const request = createMockRequest({
+          sessionId: 'session-123',
+          message: 'Test message',
+        });
+
+        const response = await POST(request);
+        const data = await response.json();
+
+        expect(response.status).toBe(500);
+        expect(data.error).toContain('Unable to retrieve conversation history');
+        expect(data.code).toBe('HISTORY_RETRIEVAL_ERROR');
+      });
     });
   });
 });

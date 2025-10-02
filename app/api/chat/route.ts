@@ -45,12 +45,20 @@ const ChatRequestSchema = z.object({
 // type Profile = Database['public']['Tables']['profiles']['Row'];
 
 /**
+ * Maximum conversation history length to maintain performance
+ * Longer histories are truncated to the most recent messages
+ */
+const MAX_CONVERSATION_HISTORY_LENGTH = 20;
+
+/**
  * POST /api/chat
  * 
  * Central orchestrator for Clarifier's two-phase conversation model.
  * Handles session creation, message persistence, rate limiting, and LLM orchestration.
  */
 export async function POST(request: NextRequest): Promise<NextResponse<ChatResponse | ErrorResponse>> {
+  const startTime = Date.now();
+  
   try {
     // Parse and validate request body
     const body = await request.json();
@@ -178,11 +186,20 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
       .order('created_at', { ascending: true });
 
     if (historyError) {
+      console.error('Failed to retrieve conversation history:', historyError);
       return NextResponse.json(
-        { error: 'Failed to retrieve conversation history' },
+        { 
+          error: 'Unable to retrieve conversation history. Please try again.',
+          code: 'HISTORY_RETRIEVAL_ERROR',
+          details: 'Database query failed'
+        },
         { status: 500 }
       );
     }
+
+    // Log conversation history length for monitoring
+    const historyLength = messagesData?.length || 0;
+    console.log(`Conversation history retrieved: ${historyLength} messages for session ${currentSessionId}`);
 
     // Get session domain if not provided (for continuing sessions)
     let currentDomain = domain;
@@ -198,7 +215,11 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
 
     if (!currentDomain) {
       return NextResponse.json(
-        { error: 'Domain not found for session' },
+        { 
+          error: 'Session configuration error. Please start a new session.',
+          code: 'DOMAIN_NOT_FOUND',
+          details: 'Domain not found for session'
+        },
         { status: 400 }
       );
     }
@@ -214,12 +235,29 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
     } else {
       try {
         // Prepare conversation history (exclude the current user message)
-        const conversationHistory: ConversationMessage[] = messagesData
+        let conversationHistory: ConversationMessage[] = messagesData
           .slice(0, -1) // Exclude the current message we just saved
           .map(msg => ({
             role: msg.role as 'user' | 'assistant',
             content: msg.content,
           }));
+
+        // Handle empty conversation history (first message)
+        const isFirstMessage = conversationHistory.length === 0;
+        if (isFirstMessage) {
+          console.log(`First message in session ${currentSessionId} for domain: ${currentDomain}`);
+        }
+
+        // Truncate conversation history if it exceeds maximum length
+        if (conversationHistory.length > MAX_CONVERSATION_HISTORY_LENGTH) {
+          const originalLength = conversationHistory.length;
+          conversationHistory = conversationHistory.slice(-MAX_CONVERSATION_HISTORY_LENGTH);
+          console.log(`Conversation history truncated from ${originalLength} to ${MAX_CONVERSATION_HISTORY_LENGTH} messages for session ${currentSessionId}`);
+        }
+
+        // Log conversation loop invocation
+        const conversationStartTime = Date.now();
+        console.log(`Calling continueConversation with ${conversationHistory.length} history messages`);
 
         // Get AI response using conversation loop
         responseMessage = await continueConversation({
@@ -228,14 +266,25 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
           userMessage: message,
           intensity: intensity || 'deep',
         });
+
+        // Log conversation loop performance
+        const conversationDuration = Date.now() - conversationStartTime;
+        console.log(`Conversation loop completed in ${conversationDuration}ms`);
+
       } catch (error: any) {
-        console.error('Conversation loop error:', error);
+        console.error('Conversation loop error:', {
+          error: error.message,
+          code: error.code,
+          sessionId: currentSessionId,
+          domain: currentDomain,
+          historyLength: messagesData?.length || 0
+        });
         
         // Handle specific conversation errors
         if (error instanceof ConversationValidationError) {
           return NextResponse.json(
             { 
-              error: 'Invalid conversation data',
+              error: 'Invalid conversation data. Please check your message and try again.',
               code: 'CONVERSATION_VALIDATION_ERROR',
               details: error.message
             },
@@ -243,10 +292,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
           );
         }
 
-        // For other errors, return generic error
+        // For other errors, provide helpful user-facing message
         return NextResponse.json(
           { 
-            error: 'Failed to generate response',
+            error: 'Unable to generate response. Please try again or start a new session.',
             code: 'CONVERSATION_ERROR',
             details: error.message || 'An error occurred while processing your message'
           },
@@ -278,6 +327,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
       }
     }
 
+    // Log overall request performance
+    const totalDuration = Date.now() - startTime;
+    console.log(`Chat API request completed in ${totalDuration}ms for session ${currentSessionId}`);
+
     return NextResponse.json({
       sessionId: currentSessionId,
       responseMessage,
@@ -285,11 +338,16 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
     });
 
   } catch (error) {
-    console.error('Chat API error:', error);
+    const totalDuration = Date.now() - startTime;
+    console.error('Chat API error:', {
+      error,
+      duration: totalDuration,
+      stack: error instanceof Error ? error.stack : undefined
+    });
     
     return NextResponse.json(
       { 
-        error: 'Internal server error',
+        error: 'An unexpected error occurred. Please try again.',
         code: 'INTERNAL_ERROR'
       },
       { status: 500 }
