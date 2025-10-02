@@ -69,6 +69,7 @@ export interface ChatResponse {
   questionCount?: number; // Number of questions asked so far
   canGenerate?: boolean; // Whether user can trigger generation
   suggestedTermination?: boolean; // Whether AI suggests readiness to generate
+  questionType?: 'basic' | 'deep'; // Question type for the assistant response
   finalOutput?: {
     brief: string;
     generatedIdeas: Record<string, unknown>; // Structured output from generation
@@ -304,6 +305,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
           user_id: user.id,
           domain: domain,
           status: 'questioning',
+          intensity: intensity || 'deep', // Store the intensity preference
         })
         .select()
         .single();
@@ -338,7 +340,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
     // Retrieve conversation history for this session
     const { data: messagesData, error: historyError } = await supabase
       .from('messages')
-      .select('role, content')
+      .select('role, content, question_type')
       .eq('session_id', currentSessionId)
       .order('created_at', { ascending: true });
 
@@ -714,13 +716,14 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
       }
     }
 
-    // Save assistant response to database
+    // Save assistant response to database with question_type
     const { error: assistantMessageError } = await supabase
       .from('messages')
       .insert({
         session_id: currentSessionId,
         role: 'assistant',
         content: responseMessage,
+        question_type: intensity || 'deep', // Store the intensity as question_type for assistant messages
       });
 
     if (assistantMessageError) {
@@ -760,6 +763,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
       questionCount,
       canGenerate,
       suggestedTermination,
+      questionType: intensity || 'deep', // Include question type in response
       finalOutput,
     });
 

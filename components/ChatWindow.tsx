@@ -11,6 +11,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  questionType?: 'basic' | 'deep' | undefined;
 }
 
 export interface ChatWindowProps {
@@ -29,7 +30,7 @@ export interface ChatWindowProps {
 
 export interface MessageBubbleProps {
   message: ChatMessage;
-  intensity?: 'basic' | 'deep';
+  questionType?: 'basic' | 'deep' | undefined;
   className?: string;
 }
 
@@ -179,7 +180,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
               <MessageBubble
                 key={message.id}
                 message={message}
-                intensity={intensity}
+                questionType={message.questionType}
                 className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300"
               />
             ))}

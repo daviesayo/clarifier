@@ -155,11 +155,12 @@ export class MessageService {
     })
   }
 
-  async addAssistantMessage(sessionId: string, content: string): Promise<QueryResult<Message>> {
+  async addAssistantMessage(sessionId: string, content: string, questionType?: 'basic' | 'deep'): Promise<QueryResult<Message>> {
     return this.createMessage({
       session_id: sessionId,
       role: 'assistant',
-      content
+      content,
+      question_type: questionType || null
     })
   }
 }

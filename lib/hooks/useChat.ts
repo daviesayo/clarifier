@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { ChatMessage } from '@/components/ChatWindow';
 import { sendMessage as apiSendMessage, generateIdeas as apiGenerateIdeas, createSession as apiCreateSession, ChatApiError } from '@/lib/api/chat';
 import { ChatResponse } from '@/app/api/chat/route';
@@ -55,12 +55,31 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
   const lastMessageRef = useRef<string>('');
   const lastSessionIdRef = useRef<string | null>(null);
 
+  // Function to load session intensity from database
+  const loadSessionIntensity = useCallback(async () => {
+    try {
+      // For now, we'll rely on the intensity being passed in the chat response
+      // The intensity is already being stored and retrieved through the chat API
+      // This function can be enhanced later if we need to fetch session intensity separately
+    } catch (error) {
+      console.error('Failed to load session intensity:', error);
+    }
+  }, []);
+
+  // Load session intensity when sessionId changes
+  useEffect(() => {
+    if (sessionId) {
+      loadSessionIntensity();
+    }
+  }, [sessionId, loadSessionIntensity]);
+
   // Function to update intensity and persist to localStorage
   const setIntensity = useCallback((newIntensity: 'basic' | 'deep') => {
     setIntensityState(newIntensity);
     if (typeof window !== 'undefined') {
       localStorage.setItem('clarifier-intensity', newIntensity);
     }
+    // Note: Intensity will be sent with the next message via the chat API
   }, []);
 
   const addMessage = useCallback((message: Omit<ChatMessage, 'id' | 'timestamp'>) => {
@@ -112,6 +131,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
       addMessage({
         role: 'assistant',
         content: response.responseMessage,
+        questionType: response.questionType || undefined,
       });
 
       // Handle session completion
@@ -149,6 +169,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
       addMessage({
         role: 'assistant',
         content: response.responseMessage,
+        questionType: response.questionType || undefined,
       });
 
       // Handle session completion
@@ -196,6 +217,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
       addMessage({
         role: 'assistant',
         content: response.responseMessage,
+        questionType: response.questionType || undefined,
       });
 
     } catch (err) {

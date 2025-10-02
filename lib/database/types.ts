@@ -28,6 +28,12 @@ export type ProfileTier = "free" | "premium" | "pro"
 // Status type for sessions
 export type SessionStatus = "questioning" | "generating" | "completed"
 
+// Question type for messages
+export type QuestionType = "basic" | "deep"
+
+// Intensity type for sessions
+export type Intensity = "basic" | "deep"
+
 // Additional utility types
 export type DatabaseTable = keyof Database['public']['Tables']
 

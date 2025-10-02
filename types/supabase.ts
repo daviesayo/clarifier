@@ -19,6 +19,7 @@ export type Database = {
           content: string
           created_at: string | null
           id: number
+          question_type: string | null
           role: string
           session_id: string | null
         }
@@ -26,6 +27,7 @@ export type Database = {
           content: string
           created_at?: string | null
           id?: number
+          question_type?: string | null
           role: string
           session_id?: string | null
         }
@@ -33,6 +35,7 @@ export type Database = {
           content?: string
           created_at?: string | null
           id?: number
+          question_type?: string | null
           role?: string
           session_id?: string | null
         }
@@ -77,6 +80,7 @@ export type Database = {
           final_brief: string | null
           final_output: Json | null
           id: string
+          intensity: string
           status: string
           user_id: string | null
         }
@@ -86,6 +90,7 @@ export type Database = {
           final_brief?: string | null
           final_output?: Json | null
           id?: string
+          intensity?: string
           status?: string
           user_id?: string | null
         }
@@ -95,6 +100,7 @@ export type Database = {
           final_brief?: string | null
           final_output?: Json | null
           id?: string
+          intensity?: string
           status?: string
           user_id?: string | null
         }
