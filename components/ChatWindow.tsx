@@ -103,7 +103,6 @@ export const GenerateIdeasButton: React.FC<GenerateIdeasButtonProps> = ({
 
 // Main ChatWindow component
 export const ChatWindow: React.FC<ChatWindowProps> = ({
-  sessionId,
   messages,
   isLoading = false,
   isGenerating = false,
@@ -163,7 +162,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
               Start a conversation
             </h3>
             <p className="text-gray-500 dark:text-gray-400 max-w-md">
-              Ask me anything about your idea, and I'll help you explore it through thoughtful questions.
+              Ask me anything about your idea, and I&apos;ll help you explore it through thoughtful questions.
             </p>
           </div>
         ) : (

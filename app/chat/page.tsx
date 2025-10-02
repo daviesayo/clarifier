@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import { ChatWindow } from '@/components/ChatWindow';
 import { useChat, ChatApiError } from '@/lib/hooks/useChat';
 import { Domain } from '@/lib/prompts';
@@ -10,7 +9,6 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { X, RefreshCw } from 'lucide-react';
 
 export default function ChatPage() {
-  const router = useRouter();
   const [selectedDomain, setSelectedDomain] = useState<Domain | null>(null);
   const [showDomainSelector, setShowDomainSelector] = useState(true);
 

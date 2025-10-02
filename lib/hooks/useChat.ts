@@ -12,7 +12,7 @@ export interface ChatApiResponse {
   suggestedTermination?: boolean;
   finalOutput?: {
     brief: string;
-    generatedIdeas: any;
+    generatedIdeas: Record<string, unknown>;
   };
   error?: string;
 }
@@ -31,7 +31,7 @@ export interface UseChatOptions {
   domain?: string;
   intensity?: 'basic' | 'deep';
   onError?: (error: ChatApiError) => void;
-  onSessionComplete?: (finalOutput: { brief: string; generatedIdeas: any }) => void;
+  onSessionComplete?: (finalOutput: { brief: string; generatedIdeas: Record<string, unknown> }) => void;
 }
 
 export interface UseChatReturn {

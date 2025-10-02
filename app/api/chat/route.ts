@@ -26,7 +26,7 @@ export interface ChatResponse {
   suggestedTermination?: boolean; // Whether AI suggests readiness to generate
   finalOutput?: {
     brief: string;
-    generatedIdeas: any; // Structured output from generation
+    generatedIdeas: Record<string, unknown>; // Structured output from generation
   } | undefined;
   error?: string;
 }
@@ -433,7 +433,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
         const generationStartTime = Date.now();
 
         // Add retry logic for generation
-        let generationResult: any;
+        let generationResult: { wordCount: number; model: string; rawOutput: string; structuredOutput: Record<string, unknown> | null } | undefined;
         let generationAttempts = 0;
         const maxGenerationRetries = 2;
 
@@ -463,6 +463,11 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
 
         const generationDuration = Date.now() - generationStartTime;
         console.log(`Output generation completed in ${generationDuration}ms for session ${currentSessionId} (${generationAttempts + 1} attempts)`);
+        
+        if (!generationResult) {
+          throw new Error('Generation failed - no result returned');
+        }
+        
         console.log(`Generation metrics: ${generationResult.wordCount} words, model: ${generationResult.model}`);
 
         // Step 4: Update session with final output and completed status
@@ -682,7 +687,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
     console.log(`Chat API request completed in ${totalDuration}ms for session ${currentSessionId}`);
 
     // Prepare finalOutput for generation responses
-    let finalOutput: { brief: string; generatedIdeas: any } | undefined;
+    let finalOutput: { brief: string; generatedIdeas: Record<string, unknown> } | undefined;
     if (isCompleted && generateNow) {
       // Get the brief and generated ideas from the database
       const { data: sessionData } = await supabase
