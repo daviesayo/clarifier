@@ -24,6 +24,10 @@ export interface ChatResponse {
   questionCount?: number; // Number of questions asked so far
   canGenerate?: boolean; // Whether user can trigger generation
   suggestedTermination?: boolean; // Whether AI suggests readiness to generate
+  finalOutput?: {
+    brief: string;
+    generatedIdeas: any; // Structured output from generation
+  } | undefined;
   error?: string;
 }
 
@@ -64,6 +68,12 @@ const MAX_CONVERSATION_HISTORY_LENGTH = 20;
 const MIN_QUESTIONS_THRESHOLD = 3;
 
 /**
+ * Maximum time allowed for generation operations (in milliseconds)
+ * Vercel serverless functions have a 10s timeout on free tier
+ */
+const MAX_GENERATION_TIMEOUT = 8000; // 8 seconds to leave buffer for response
+
+/**
  * Keywords that indicate AI is suggesting readiness to proceed to generation
  */
 const TERMINATION_KEYWORDS = [
@@ -77,6 +87,28 @@ const TERMINATION_KEYWORDS = [
   'begin generating',
   'start generating',
 ];
+
+/**
+ * Wraps an async operation with a timeout
+ * @param operation The async operation to execute
+ * @param timeoutMs Timeout in milliseconds
+ * @param operationName Name of the operation for logging
+ * @returns Promise that rejects with timeout error if exceeded
+ */
+async function withTimeout<T>(
+  operation: () => Promise<T>,
+  timeoutMs: number,
+  operationName: string
+): Promise<T> {
+  return Promise.race([
+    operation(),
+    new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`${operationName} timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+    })
+  ]);
+}
 
 /**
  * Detects if the AI response suggests termination (readiness to generate)
@@ -335,13 +367,42 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
           content: msg.content,
         }));
 
-        const brief = await synthesizeBrief({
-          domain: currentDomain,
-          conversationHistory,
-        });
+        // Add retry logic for synthesis
+        let brief: string | undefined;
+        let synthesisAttempts = 0;
+        const maxSynthesisRetries = 2;
+
+        while (synthesisAttempts <= maxSynthesisRetries) {
+          try {
+            brief = await withTimeout(
+              () => synthesizeBrief({
+                domain: currentDomain,
+                conversationHistory,
+              }),
+              MAX_GENERATION_TIMEOUT / 2, // Use half timeout for synthesis
+              'Synthesis'
+            );
+            break; // Success, exit retry loop
+          } catch (error) {
+            synthesisAttempts++;
+            console.warn(`Synthesis attempt ${synthesisAttempts} failed:`, error);
+            
+            if (synthesisAttempts > maxSynthesisRetries) {
+              throw error; // Re-throw if max retries exceeded
+            }
+            
+            // Wait before retry (exponential backoff)
+            await new Promise(resolve => setTimeout(resolve, 1000 * synthesisAttempts));
+          }
+        }
 
         const synthesisDuration = Date.now() - synthesisStartTime;
-        console.log(`Context synthesis completed in ${synthesisDuration}ms for session ${currentSessionId}`);
+        console.log(`Context synthesis completed in ${synthesisDuration}ms for session ${currentSessionId} (${synthesisAttempts + 1} attempts)`);
+
+        // Ensure brief was successfully generated
+        if (!brief) {
+          throw new Error('Failed to generate brief after all retry attempts');
+        }
 
         // Step 2: Update session with brief and status
         const { error: updateError } = await supabase
@@ -358,7 +419,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
             { 
               error: 'Failed to save synthesis results',
               code: 'DATABASE_UPDATE_ERROR',
-              details: 'Unable to update session with synthesized brief'
+              details: 'Unable to update session with synthesized brief. Please try again.',
+              message: 'Your conversation was processed but couldn\'t be saved. Please try generating again.'
             },
             { status: 500 }
           );
@@ -370,13 +432,37 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
         console.log(`Starting output generation for session ${currentSessionId}`);
         const generationStartTime = Date.now();
 
-        const generationResult = await generateOutput({
-          domain: currentDomain,
-          brief,
-        });
+        // Add retry logic for generation
+        let generationResult: any;
+        let generationAttempts = 0;
+        const maxGenerationRetries = 2;
+
+        while (generationAttempts <= maxGenerationRetries) {
+          try {
+            generationResult = await withTimeout(
+              () => generateOutput({
+                domain: currentDomain,
+                brief,
+              }),
+              MAX_GENERATION_TIMEOUT / 2, // Use half timeout for generation
+              'Generation'
+            );
+            break; // Success, exit retry loop
+          } catch (error) {
+            generationAttempts++;
+            console.warn(`Generation attempt ${generationAttempts} failed:`, error);
+            
+            if (generationAttempts > maxGenerationRetries) {
+              throw error; // Re-throw if max retries exceeded
+            }
+            
+            // Wait before retry (exponential backoff)
+            await new Promise(resolve => setTimeout(resolve, 1000 * generationAttempts));
+          }
+        }
 
         const generationDuration = Date.now() - generationStartTime;
-        console.log(`Output generation completed in ${generationDuration}ms for session ${currentSessionId}`);
+        console.log(`Output generation completed in ${generationDuration}ms for session ${currentSessionId} (${generationAttempts + 1} attempts)`);
         console.log(`Generation metrics: ${generationResult.wordCount} words, model: ${generationResult.model}`);
 
         // Step 4: Update session with final output and completed status
@@ -396,7 +482,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
             { 
               error: 'Failed to save generation results',
               code: 'DATABASE_UPDATE_ERROR',
-              details: 'Unable to update session with generated output'
+              details: 'Unable to update session with generated output. Please try again.',
+              message: 'Your ideas were generated but couldn\'t be saved. Please try generating again.'
             },
             { status: 500 }
           );
@@ -418,13 +505,14 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
       } catch (error: unknown) {
         console.error('Generation phase failed:', error);
 
-        // Handle specific error types
+        // Handle specific error types with user-friendly messages
         if (error instanceof SynthesisValidationError) {
           return NextResponse.json(
             { 
-              error: 'Invalid conversation data for synthesis',
+              error: 'Unable to process your conversation',
               code: 'SYNTHESIS_VALIDATION_ERROR',
-              details: error.message
+              details: error.message,
+              message: 'There was an issue with the conversation format. Please try again with a different message.'
             },
             { status: 400 }
           );
@@ -433,9 +521,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
         if (error instanceof SynthesisError) {
           return NextResponse.json(
             { 
-              error: 'Failed to synthesize conversation',
+              error: 'Failed to analyze your conversation',
               code: 'SYNTHESIS_ERROR',
-              details: error.message
+              details: error.message,
+              message: 'We couldn\'t process your conversation. Please try again or start a new session.'
             },
             { status: 500 }
           );
@@ -444,9 +533,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
         if (error instanceof GenerationValidationError) {
           return NextResponse.json(
             { 
-              error: 'Invalid data for generation',
+              error: 'Invalid data for idea generation',
               code: 'GENERATION_VALIDATION_ERROR',
-              details: error.message
+              details: error.message,
+              message: 'There was an issue with the data format. Please try generating again.'
             },
             { status: 400 }
           );
@@ -455,20 +545,35 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
         if (error instanceof GenerationError) {
           return NextResponse.json(
             { 
-              error: 'Failed to generate output',
+              error: 'Failed to generate ideas',
               code: 'GENERATION_ERROR',
-              details: error.message
+              details: error.message,
+              message: 'We couldn\'t generate your ideas. Please try again or contact support if the issue persists.'
             },
             { status: 500 }
           );
         }
 
-        // Generic error
+        // Handle timeout errors specifically
+        if (error instanceof Error && error.message.includes('timed out')) {
+          return NextResponse.json(
+            { 
+              error: 'Generation timed out',
+              code: 'GENERATION_TIMEOUT',
+              details: error.message,
+              message: 'Generation is taking longer than expected. Please try again with a shorter conversation or contact support.'
+            },
+            { status: 408 }
+          );
+        }
+
+        // Generic error with retry suggestion
         return NextResponse.json(
           { 
-            error: 'An error occurred during generation phase',
+            error: 'Generation failed unexpectedly',
             code: 'GENERATION_UNKNOWN_ERROR',
-            details: error instanceof Error ? error.message : 'Unknown error'
+            details: error instanceof Error ? error.message : 'Unknown error',
+            message: 'Something went wrong during generation. Please try again in a moment.'
           },
           { status: 500 }
         );
@@ -576,6 +681,24 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
     const totalDuration = Date.now() - startTime;
     console.log(`Chat API request completed in ${totalDuration}ms for session ${currentSessionId}`);
 
+    // Prepare finalOutput for generation responses
+    let finalOutput: { brief: string; generatedIdeas: any } | undefined;
+    if (isCompleted && generateNow) {
+      // Get the brief and generated ideas from the database
+      const { data: sessionData } = await supabase
+        .from('sessions')
+        .select('final_brief, final_output')
+        .eq('id', currentSessionId)
+        .single();
+      
+      if (sessionData?.final_brief && sessionData?.final_output) {
+        finalOutput = {
+          brief: sessionData.final_brief,
+          generatedIdeas: sessionData.final_output
+        };
+      }
+    }
+
     return NextResponse.json({
       sessionId: currentSessionId,
       responseMessage,
@@ -584,6 +707,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
       questionCount,
       canGenerate,
       suggestedTermination,
+      finalOutput,
     });
 
   } catch (error) {

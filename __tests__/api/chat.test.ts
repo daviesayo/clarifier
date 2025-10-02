@@ -77,6 +77,57 @@ jest.mock('@/lib/llm/conversationLoop', () => ({
   },
 }));
 
+// Mock synthesis and generation functions
+jest.mock('@/lib/llm/synthesizeBrief', () => ({
+  synthesizeBrief: jest.fn(() => Promise.resolve('Mock synthesized brief')),
+  SynthesisError: class SynthesisError extends Error {
+    constructor(message: string) {
+      super(message);
+      this.name = 'SynthesisError';
+    }
+  },
+  ValidationError: class SynthesisValidationError extends Error {
+    constructor(message: string) {
+      super(message);
+      this.name = 'ValidationError';
+    }
+  },
+}));
+
+jest.mock('@/lib/llm/generateOutput', () => ({
+  generateOutput: jest.fn(() => Promise.resolve({
+    rawOutput: 'Mock generated output',
+    structuredOutput: { ideas: ['Idea 1', 'Idea 2'] },
+    wordCount: 100,
+    model: 'mock-model'
+  })),
+  GenerationError: class GenerationError extends Error {
+    constructor(message: string) {
+      super(message);
+      this.name = 'GenerationError';
+    }
+  },
+  ValidationError: class GenerationValidationError extends Error {
+    constructor(message: string) {
+      super(message);
+      this.name = 'ValidationError';
+    }
+  },
+}));
+
+// Mock database services
+jest.mock('@/lib/database/sessions', () => ({
+  sessionService: {
+    updateSession: jest.fn(() => Promise.resolve({ error: null })),
+  },
+}));
+
+jest.mock('@/lib/database/profiles', () => ({
+  profileService: {
+    incrementUsageCount: jest.fn(() => Promise.resolve({ error: null })),
+  },
+}));
+
 // Mock NextRequest for Node.js environment
 const createMockRequest = (body: any) => ({
   json: jest.fn().mockResolvedValue(body),
@@ -305,7 +356,15 @@ describe('/api/chat', () => {
           });
         } else if (table === 'messages') {
           const chain = createChainableMock({
-            data: [{ role: 'user', content: 'Test message' }],
+            data: [
+              { role: 'user', content: 'Question 1' },
+              { role: 'assistant', content: 'Response 1?' },
+              { role: 'user', content: 'Question 2' },
+              { role: 'assistant', content: 'Response 2?' },
+              { role: 'user', content: 'Question 3' },
+              { role: 'assistant', content: 'Response 3?' },
+              { role: 'user', content: 'Test message' }
+            ],
             error: null,
           });
           chain.insert.mockResolvedValue({ data: null, error: null });
@@ -324,8 +383,11 @@ describe('/api/chat', () => {
       const data = await response.json();
 
       expect(response.status).toBe(200);
-      expect(data.responseMessage).toContain('Generation mode');
+      expect(data.responseMessage).toContain('Generation complete!');
       expect(data.isCompleted).toBe(true);
+      expect(data.finalOutput).toBeDefined();
+      expect(data.finalOutput.brief).toBe('Mock synthesized brief');
+      expect(data.finalOutput.generatedIdeas).toEqual({ ideas: ['Idea 1', 'Idea 2'] });
     });
 
     it('should return 500 for internal server error', async () => {
@@ -342,6 +404,407 @@ describe('/api/chat', () => {
       expect(response.status).toBe(500);
       expect(data.error).toContain('unexpected error');
       expect(data.code).toBe('INTERNAL_ERROR');
+    });
+
+    it('should return 400 when minimum questions not met for generation', async () => {
+      mockSupabaseClient.auth.getUser.mockResolvedValue({
+        data: { user: { id: 'user-123' } },
+        error: null,
+      });
+
+      // Mock session with insufficient questions
+      mockSupabaseClient.from.mockImplementation((table: string) => {
+        if (table === 'sessions') {
+          return createChainableMock({
+            data: { id: 'session-123', user_id: 'user-123', domain: 'business' },
+            error: null,
+          });
+        } else if (table === 'messages') {
+          const chain = createChainableMock({
+            data: [
+              { role: 'user', content: 'Question 1' },
+              { role: 'assistant', content: 'Response 1?' },
+              { role: 'user', content: 'Test message' }
+            ],
+            error: null,
+          });
+          chain.insert.mockResolvedValue({ data: null, error: null });
+          return chain;
+        }
+        return createChainableMock({ data: null, error: null });
+      });
+
+      const request = createMockRequest({
+        message: 'Test message',
+        domain: 'business',
+        generateNow: true,
+      });
+
+      const response = await POST(request);
+      const data = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(data.error).toBe('Insufficient questions answered');
+      expect(data.code).toBe('MIN_QUESTIONS_NOT_MET');
+      expect(data.message).toContain('Please answer at least');
+    });
+  });
+
+  describe('Generation Integration', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+      
+      // Default mock for authenticated user
+      mockSupabaseClient.auth.getUser.mockResolvedValue({
+        data: { user: { id: 'user-123' } },
+        error: null,
+      });
+    });
+
+    describe('Successful Generation Flow', () => {
+      it('should complete full generation flow with finalOutput', async () => {
+        const { synthesizeBrief } = require('@/lib/llm/synthesizeBrief');
+        const { generateOutput } = require('@/lib/llm/generateOutput');
+        const { sessionService } = require('@/lib/database/sessions');
+        const { profileService } = require('@/lib/database/profiles');
+
+        // Mock database calls
+        let callCount = 0;
+        mockSupabaseClient.from.mockImplementation((table: string) => {
+          if (table === 'sessions') {
+            callCount++;
+            if (callCount === 1) {
+              // First call: create session
+              return createChainableMock({
+                data: { id: 'session-123', user_id: 'user-123', domain: 'business' },
+                error: null,
+              });
+            } else if (callCount === 2) {
+              // Second call: update session with brief
+              return createChainableMock({
+                data: null,
+                error: null,
+              });
+            } else if (callCount === 3) {
+              // Third call: get final output
+              return createChainableMock({
+                data: { 
+                  final_brief: 'Mock synthesized brief',
+                  final_output: { ideas: ['Idea 1', 'Idea 2'] }
+                },
+                error: null,
+              });
+            }
+            return createChainableMock({ data: null, error: null });
+          } else if (table === 'messages') {
+            const chain = createChainableMock({
+              data: [
+                { role: 'user', content: 'Question 1' },
+                { role: 'assistant', content: 'Response 1?' },
+                { role: 'user', content: 'Question 2' },
+                { role: 'assistant', content: 'Response 2?' },
+                { role: 'user', content: 'Question 3' },
+                { role: 'assistant', content: 'Response 3?' },
+                { role: 'user', content: 'Test message' }
+              ],
+              error: null,
+            });
+            chain.insert.mockResolvedValue({ data: null, error: null });
+            return chain;
+          }
+          return createChainableMock({ data: null, error: null });
+        });
+
+        const request = createMockRequest({
+          message: 'Test message',
+          domain: 'business',
+          generateNow: true,
+        });
+
+        const response = await POST(request);
+        const data = await response.json();
+
+        expect(response.status).toBe(200);
+        expect(data.isCompleted).toBe(true);
+        expect(data.finalOutput).toBeDefined();
+        expect(data.finalOutput.brief).toBe('Mock synthesized brief');
+        expect(data.finalOutput.generatedIdeas).toEqual({ ideas: ['Idea 1', 'Idea 2'] });
+        
+        // Verify synthesis and generation were called
+        expect(synthesizeBrief).toHaveBeenCalledWith({
+          domain: 'business',
+          conversationHistory: expect.any(Array),
+        });
+        expect(generateOutput).toHaveBeenCalledWith({
+          domain: 'business',
+          brief: 'Mock synthesized brief',
+        });
+        
+        // Verify database updates
+        expect(sessionService.updateSession).toHaveBeenCalledWith('session-123', {
+          final_output: { ideas: ['Idea 1', 'Idea 2'] },
+          status: 'completed',
+        });
+        expect(profileService.incrementUsageCount).toHaveBeenCalledWith('user-123');
+      });
+
+      it('should handle generation with retry logic', async () => {
+        const { synthesizeBrief } = require('@/lib/llm/synthesizeBrief');
+        const { generateOutput } = require('@/lib/llm/generateOutput');
+
+        // Mock first synthesis attempt to fail, second to succeed
+        synthesizeBrief
+          .mockRejectedValueOnce(new Error('Network error'))
+          .mockResolvedValueOnce('Mock synthesized brief');
+
+        // Mock generation to succeed on first attempt
+        generateOutput.mockResolvedValueOnce({
+          rawOutput: 'Mock generated output',
+          structuredOutput: { ideas: ['Idea 1', 'Idea 2'] },
+          wordCount: 100,
+          model: 'mock-model'
+        });
+
+        mockSupabaseClient.from.mockImplementation((table: string) => {
+          if (table === 'sessions') {
+            return createChainableMock({
+              data: { id: 'session-123', user_id: 'user-123', domain: 'business' },
+              error: null,
+            });
+          } else if (table === 'messages') {
+            const chain = createChainableMock({
+              data: [
+                { role: 'user', content: 'Question 1' },
+                { role: 'assistant', content: 'Response 1?' },
+                { role: 'user', content: 'Question 2' },
+                { role: 'assistant', content: 'Response 2?' },
+                { role: 'user', content: 'Question 3' },
+                { role: 'assistant', content: 'Response 3?' },
+                { role: 'user', content: 'Test message' }
+              ],
+              error: null,
+            });
+            chain.insert.mockResolvedValue({ data: null, error: null });
+            return chain;
+          }
+          return createChainableMock({ data: null, error: null });
+        });
+
+        const request = createMockRequest({
+          message: 'Test message',
+          domain: 'business',
+          generateNow: true,
+        });
+
+        const response = await POST(request);
+        const data = await response.json();
+
+        expect(response.status).toBe(200);
+        expect(data.isCompleted).toBe(true);
+        expect(synthesizeBrief).toHaveBeenCalledTimes(2);
+        expect(generateOutput).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    describe('Generation Error Handling', () => {
+      it('should handle synthesis validation errors', async () => {
+        const { ValidationError } = require('@/lib/llm/synthesizeBrief');
+        const { synthesizeBrief } = require('@/lib/llm/synthesizeBrief');
+
+        synthesizeBrief.mockRejectedValueOnce(
+          new ValidationError('Invalid conversation data')
+        );
+
+        mockSupabaseClient.from.mockImplementation((table: string) => {
+          if (table === 'sessions') {
+            return createChainableMock({
+              data: { id: 'session-123', user_id: 'user-123', domain: 'business' },
+              error: null,
+            });
+          } else if (table === 'messages') {
+            const chain = createChainableMock({
+              data: [
+                { role: 'user', content: 'Question 1' },
+                { role: 'assistant', content: 'Response 1?' },
+                { role: 'user', content: 'Question 2' },
+                { role: 'assistant', content: 'Response 2?' },
+                { role: 'user', content: 'Question 3' },
+                { role: 'assistant', content: 'Response 3?' },
+                { role: 'user', content: 'Test message' }
+              ],
+              error: null,
+            });
+            chain.insert.mockResolvedValue({ data: null, error: null });
+            return chain;
+          }
+          return createChainableMock({ data: null, error: null });
+        });
+
+        const request = createMockRequest({
+          message: 'Test message',
+          domain: 'business',
+          generateNow: true,
+        });
+
+        const response = await POST(request);
+        const data = await response.json();
+
+        expect(response.status).toBe(400);
+        expect(data.error).toBe('Unable to process your conversation');
+        expect(data.code).toBe('SYNTHESIS_VALIDATION_ERROR');
+        expect(data.message).toContain('conversation format');
+      });
+
+      it('should handle generation errors with user-friendly messages', async () => {
+        const { GenerationError } = require('@/lib/llm/generateOutput');
+        const { synthesizeBrief } = require('@/lib/llm/synthesizeBrief');
+        const { generateOutput } = require('@/lib/llm/generateOutput');
+
+        synthesizeBrief.mockResolvedValueOnce('Mock synthesized brief');
+        // Mock generation to fail on all retry attempts
+        generateOutput
+          .mockRejectedValueOnce(new GenerationError('LLM service unavailable'))
+          .mockRejectedValueOnce(new GenerationError('LLM service unavailable'))
+          .mockRejectedValueOnce(new GenerationError('LLM service unavailable'));
+
+        mockSupabaseClient.from.mockImplementation((table: string) => {
+          if (table === 'sessions') {
+            return createChainableMock({
+              data: { id: 'session-123', user_id: 'user-123', domain: 'business' },
+              error: null,
+            });
+          } else if (table === 'messages') {
+            const chain = createChainableMock({
+              data: [
+                { role: 'user', content: 'Question 1' },
+                { role: 'assistant', content: 'Response 1?' },
+                { role: 'user', content: 'Question 2' },
+                { role: 'assistant', content: 'Response 2?' },
+                { role: 'user', content: 'Question 3' },
+                { role: 'assistant', content: 'Response 3?' },
+                { role: 'user', content: 'Test message' }
+              ],
+              error: null,
+            });
+            chain.insert.mockResolvedValue({ data: null, error: null });
+            return chain;
+          }
+          return createChainableMock({ data: null, error: null });
+        });
+
+        const request = createMockRequest({
+          message: 'Test message',
+          domain: 'business',
+          generateNow: true,
+        });
+
+        const response = await POST(request);
+        const data = await response.json();
+
+        expect(response.status).toBe(500);
+        expect(data.error).toBe('Failed to generate ideas');
+        expect(data.code).toBe('GENERATION_ERROR');
+        expect(data.message).toContain('couldn\'t generate your ideas');
+      });
+
+      it('should handle timeout errors', async () => {
+        const { synthesizeBrief } = require('@/lib/llm/synthesizeBrief');
+
+        // Mock timeout error on all retry attempts
+        synthesizeBrief
+          .mockRejectedValueOnce(new Error('Synthesis timed out after 4000ms'))
+          .mockRejectedValueOnce(new Error('Synthesis timed out after 4000ms'))
+          .mockRejectedValueOnce(new Error('Synthesis timed out after 4000ms'));
+
+        mockSupabaseClient.from.mockImplementation((table: string) => {
+          if (table === 'sessions') {
+            return createChainableMock({
+              data: { id: 'session-123', user_id: 'user-123', domain: 'business' },
+              error: null,
+            });
+          } else if (table === 'messages') {
+            const chain = createChainableMock({
+              data: [
+                { role: 'user', content: 'Question 1' },
+                { role: 'assistant', content: 'Response 1?' },
+                { role: 'user', content: 'Question 2' },
+                { role: 'assistant', content: 'Response 2?' },
+                { role: 'user', content: 'Question 3' },
+                { role: 'assistant', content: 'Response 3?' },
+                { role: 'user', content: 'Test message' }
+              ],
+              error: null,
+            });
+            chain.insert.mockResolvedValue({ data: null, error: null });
+            return chain;
+          }
+          return createChainableMock({ data: null, error: null });
+        });
+
+        const request = createMockRequest({
+          message: 'Test message',
+          domain: 'business',
+          generateNow: true,
+        });
+
+        const response = await POST(request);
+        const data = await response.json();
+
+        expect(response.status).toBe(408);
+        expect(data.error).toBe('Generation timed out');
+        expect(data.code).toBe('GENERATION_TIMEOUT');
+        expect(data.message).toContain('taking longer than expected');
+      });
+    });
+
+    describe('Performance and Monitoring', () => {
+      it('should log generation performance metrics', async () => {
+        const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+        mockSupabaseClient.from.mockImplementation((table: string) => {
+          if (table === 'sessions') {
+            return createChainableMock({
+              data: { id: 'session-123', user_id: 'user-123', domain: 'business' },
+              error: null,
+            });
+          } else if (table === 'messages') {
+            const chain = createChainableMock({
+              data: [
+                { role: 'user', content: 'Question 1' },
+                { role: 'assistant', content: 'Response 1?' },
+                { role: 'user', content: 'Question 2' },
+                { role: 'assistant', content: 'Response 2?' },
+                { role: 'user', content: 'Question 3' },
+                { role: 'assistant', content: 'Response 3?' },
+                { role: 'user', content: 'Test message' }
+              ],
+              error: null,
+            });
+            chain.insert.mockResolvedValue({ data: null, error: null });
+            return chain;
+          }
+          return createChainableMock({ data: null, error: null });
+        });
+
+        const request = createMockRequest({
+          message: 'Test message',
+          domain: 'business',
+          generateNow: true,
+        });
+
+        await POST(request);
+
+        expect(consoleSpy).toHaveBeenCalledWith(
+          expect.stringContaining('Context synthesis completed in')
+        );
+        expect(consoleSpy).toHaveBeenCalledWith(
+          expect.stringContaining('Output generation completed in')
+        );
+        expect(consoleSpy).toHaveBeenCalledWith(
+          expect.stringContaining('Generation metrics:')
+        );
+        consoleSpy.mockRestore();
+      });
     });
   });
 
