@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
+import { checkRateLimit, incrementUsage, getRateLimitHeaders, createRateLimitError } from '@/lib/rateLimit';
+import type { RateLimitResult } from '@/lib/database/types';
 
 // TypeScript interfaces
 export interface ChatRequest {
@@ -21,6 +23,10 @@ export interface ErrorResponse {
   error: string;
   code?: string;
   details?: string;
+  message?: string;
+  remaining?: number;
+  limit?: number;
+  tier?: string;
 }
 
 // Validation schema
@@ -75,27 +81,29 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
       );
     }
 
-    // Get user profile for rate limiting
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single();
-
-    if (profileError || !profile) {
-      return NextResponse.json(
-        { error: 'User profile not found' },
-        { status: 404 }
-      );
-    }
-
-    // Check rate limiting
-    const maxSessions = profile.tier === 'free' ? 10 : 100; // Example limits
-    if (profile.usage_count && profile.usage_count >= maxSessions) {
-      return NextResponse.json(
-        { error: 'Rate limit exceeded' },
-        { status: 429 }
-      );
+    // Check rate limiting before creating new sessions
+    if (!sessionId) {
+      const rateLimitResult = await checkRateLimit(user.id);
+      
+      if (!rateLimitResult.allowed) {
+        const rateLimitError = createRateLimitError(rateLimitResult);
+        const headers = getRateLimitHeaders(rateLimitResult);
+        
+        return NextResponse.json(
+          {
+            error: 'Rate limit exceeded',
+            message: 'Upgrade to Pro for unlimited sessions',
+            remaining: rateLimitResult.remaining,
+            limit: rateLimitResult.limit,
+            tier: rateLimitResult.tier,
+            code: 'RATE_LIMIT_EXCEEDED'
+          },
+          {
+            status: 429,
+            headers
+          }
+        );
+      }
     }
 
     let currentSessionId: string;
@@ -144,12 +152,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
       }
 
       currentSessionId = newSession.id;
-
-      // Update usage count
-      await supabase
-        .from('profiles')
-        .update({ usage_count: (profile.usage_count || 0) + 1 })
-        .eq('id', user.id);
     }
 
     // Save user message to database
@@ -174,10 +176,22 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
       ? `Generation mode: Processing your request for ${domain} domain...`
       : `Questioning mode: I understand you're working on something related to ${domain}. Let me ask you some clarifying questions...`;
 
+    // Determine if session is completed (for now, only when generateNow is true)
+    const isCompleted = generateNow || false;
+
+    // Increment usage count when session completes
+    if (isCompleted && !sessionId) {
+      const { error: incrementError } = await incrementUsage(user.id);
+      if (incrementError) {
+        console.error('Failed to increment usage count:', incrementError);
+        // Don't fail the request, just log the error
+      }
+    }
+
     return NextResponse.json({
       sessionId: currentSessionId,
       responseMessage,
-      isCompleted: false, // Will be true when generation phase is complete
+      isCompleted,
     });
 
   } catch (error) {

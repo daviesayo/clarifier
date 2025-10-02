@@ -22,8 +22,8 @@ export type MessageUpdate = Database['public']['Tables']['messages']['Update']
 // Role type for messages
 export type MessageRole = "user" | "assistant"
 
-// Tier type for profiles
-export type ProfileTier = "free" | "premium"
+// Tier type for profiles (support both 'premium' and 'pro' for backward compatibility)
+export type ProfileTier = "free" | "premium" | "pro"
 
 // Additional utility types
 export type DatabaseTable = keyof Database['public']['Tables']
@@ -70,4 +70,25 @@ export type PaginationOptions = {
 export type SortOptions = {
   column: string
   ascending?: boolean
+}
+
+// Rate limiting types
+export interface RateLimitResult {
+  allowed: boolean
+  remaining: number
+  limit: number
+  tier: 'free' | 'pro'
+  resetTime?: Date
+}
+
+export interface RateLimitConfig {
+  free: { sessions: number }
+  pro: { sessions: number }
+}
+
+export interface RateLimitError extends Error {
+  code: 'RATE_LIMIT_EXCEEDED'
+  remaining: number
+  limit: number
+  tier: string
 }

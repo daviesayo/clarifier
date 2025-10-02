@@ -52,31 +52,31 @@ export class ProfileService {
     try {
       const supabase = await createClient()
       
-      // First get the current profile to increment the count
-      const { data: currentProfile, error: fetchError } = await supabase
-        .from('profiles')
-        .select('usage_count')
-        .eq('id', userId)
-        .single()
-
-      if (fetchError) {
-        return { data: null, error: fetchError }
-      }
-
+      // Use atomic increment to prevent race conditions
       const { data, error } = await supabase
         .from('profiles')
-        .update({ usage_count: (currentProfile?.usage_count || 0) + 1 })
+        .update({ 
+          usage_count: supabase.raw('usage_count + 1')
+        })
         .eq('id', userId)
-        .select()
+        .select('*')
         .single()
 
-      return { data, error }
+      if (error) {
+        return { data: null, error }
+      }
+
+      if (!data) {
+        return { data: null, error: new Error('Profile not found') }
+      }
+
+      return { data, error: null }
     } catch (error) {
       return { data: null, error: error as Error }
     }
   }
 
-  async updateTier(userId: string, tier: 'free' | 'premium'): Promise<QueryResult<Profile>> {
+  async updateTier(userId: string, tier: 'free' | 'premium' | 'pro'): Promise<QueryResult<Profile>> {
     try {
       const supabase = await createClient()
       const { data, error } = await supabase
