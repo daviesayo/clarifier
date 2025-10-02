@@ -70,10 +70,12 @@ export interface ChatResponse {
   canGenerate?: boolean; // Whether user can trigger generation
   suggestedTermination?: boolean; // Whether AI suggests readiness to generate
   questionType?: 'basic' | 'deep'; // Question type for the assistant response
+  brief?: string; // Synthesized brief (available during partial success)
   finalOutput?: {
     brief: string;
     generatedIdeas: Record<string, unknown>; // Structured output from generation
   } | undefined;
+  partialSuccess?: boolean; // Indicates brief was synthesized but generation timed out
   error?: string;
 }
 
@@ -117,7 +119,7 @@ const MIN_QUESTIONS_THRESHOLD = 3;
  * Maximum time allowed for generation operations (in milliseconds)
  * Vercel serverless functions have a 10s timeout on free tier
  */
-const MAX_GENERATION_TIMEOUT = 8000; // 8 seconds to leave buffer for response
+const MAX_GENERATION_TIMEOUT = 25000; // 25 seconds - much longer for full generation
 
 /**
  * Keywords that indicate AI is suggesting readiness to proceed to generation
@@ -406,6 +408,9 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
         );
       }
 
+      // Declare brief at broader scope for error handling
+      let brief: string | undefined;
+
       try {
         // Step 1: Synthesize conversation into brief
         console.log(`Starting context synthesis for session ${currentSessionId}`);
@@ -418,7 +423,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
         }));
 
         // Add retry logic for synthesis
-        let brief: string | undefined;
         let synthesisAttempts = 0;
         const maxSynthesisRetries = 2;
 
@@ -429,7 +433,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
                 domain: currentDomain,
                 conversationHistory,
               }),
-              MAX_GENERATION_TIMEOUT / 2, // Use half timeout for synthesis
+              MAX_GENERATION_TIMEOUT / 3, // Use 1/3 timeout for synthesis (8+ seconds)
               'Synthesis'
             );
             break; // Success, exit retry loop
@@ -482,6 +486,11 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
         console.log(`Starting output generation for session ${currentSessionId}`);
         const generationStartTime = Date.now();
 
+        // Ensure brief is defined before generation
+        if (!brief) {
+          throw new Error('Brief is required for generation but was not provided');
+        }
+
         // Add retry logic for generation
         let generationResult: { wordCount: number; model: string; rawOutput: string; structuredOutput: Record<string, unknown> | null } | undefined;
         let generationAttempts = 0;
@@ -489,25 +498,30 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
 
         while (generationAttempts <= maxGenerationRetries) {
           try {
+            console.log(`Generation attempt ${generationAttempts + 1} starting for session ${currentSessionId}`);
             generationResult = await withTimeout(
               () => generateOutput({
                 domain: currentDomain,
-                brief,
+                brief: brief!,
               }),
-              MAX_GENERATION_TIMEOUT / 2, // Use half timeout for generation
+              MAX_GENERATION_TIMEOUT * 2 / 3, // Use 2/3 timeout for generation (16+ seconds)
               'Generation'
             );
+            console.log(`Generation attempt ${generationAttempts + 1} succeeded for session ${currentSessionId}`);
             break; // Success, exit retry loop
           } catch (error) {
             generationAttempts++;
-            console.warn(`Generation attempt ${generationAttempts} failed:`, error);
+            console.warn(`Generation attempt ${generationAttempts} failed for session ${currentSessionId}:`, error);
             
             if (generationAttempts > maxGenerationRetries) {
+              console.error(`All generation attempts failed for session ${currentSessionId}`);
               throw error; // Re-throw if max retries exceeded
             }
             
             // Wait before retry (exponential backoff)
-            await new Promise(resolve => setTimeout(resolve, 1000 * generationAttempts));
+            const retryDelay = 1000 * generationAttempts;
+            console.log(`Waiting ${retryDelay}ms before retry ${generationAttempts + 1} for session ${currentSessionId}`);
+            await new Promise(resolve => setTimeout(resolve, retryDelay));
           }
         }
 

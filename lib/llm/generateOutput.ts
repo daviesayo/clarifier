@@ -110,7 +110,7 @@ const BASE_RETRY_DELAY = 1000;
 /**
  * Timeout for generation requests (milliseconds)
  */
-const GENERATION_TIMEOUT = 6000; // 6 seconds to work within API timeout constraints
+const GENERATION_TIMEOUT = 20000; // 20 seconds for full generation
 
 // ============================================================================
 // LOGGING UTILITIES

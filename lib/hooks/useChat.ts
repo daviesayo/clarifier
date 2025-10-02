@@ -139,6 +139,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         onSessionComplete?.(response.finalOutput);
       }
 
+
     } catch (err) {
       const error = err as ChatApiError;
       setError(error.message || 'Failed to send message');
@@ -176,6 +177,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
       if (response.isCompleted && response.finalOutput) {
         onSessionComplete?.(response.finalOutput);
       }
+
 
     } catch (err) {
       const error = err as ChatApiError;

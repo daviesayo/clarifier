@@ -101,7 +101,7 @@ const SYNTHESIS_TEMPERATURE = 0.3;
 /**
  * Timeout for synthesis requests (milliseconds)
  */
-const SYNTHESIS_TIMEOUT = 6000; // 6 seconds to work within API timeout constraints
+const SYNTHESIS_TIMEOUT = 15000; // 15 seconds for synthesis
 
 /**
  * Maximum retries for API calls
