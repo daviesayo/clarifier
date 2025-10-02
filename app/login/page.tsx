@@ -39,7 +39,7 @@ export default function LoginPage() {
       } else {
         toast.error(result.error?.message || 'Failed to sign in')
       }
-    } catch (error) {
+    } catch {
       toast.error('An unexpected error occurred. Please try again.')
     } finally {
       setIsLoading(false)
@@ -104,7 +104,7 @@ export default function LoginPage() {
             </form>
           </Form>
           <div className="mt-4 text-center text-sm">
-            Don't have an account?{' '}
+            Don&apos;t have an account?{' '}
             <Link
               href="/signup"
               className="font-medium text-primary hover:underline"

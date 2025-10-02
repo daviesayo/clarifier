@@ -1,5 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { render, screen } from '@testing-library/react'
 import { AuthProvider } from '@/lib/auth/context'
 
 // Mock Next.js router
@@ -34,7 +33,16 @@ const TestWrapper = ({ children }: { children: React.ReactNode }) => (
 )
 
 describe('Authentication Flow Integration Tests', () => {
-  let mockSupabase: any
+  let mockSupabase: {
+    auth: {
+      signInWithPassword: jest.Mock
+      signUp: jest.Mock
+      signOut: jest.Mock
+      getSession: jest.Mock
+      onAuthStateChange: jest.Mock
+    }
+    from: jest.Mock
+  }
 
   beforeEach(() => {
     mockSupabase = {
@@ -55,7 +63,6 @@ describe('Authentication Flow Integration Tests', () => {
 
   describe('Login Flow', () => {
     it('should complete successful login flow', async () => {
-      const user = userEvent.setup()
       
       // Mock successful login
       mockSupabase.auth.signInWithPassword.mockResolvedValue({
@@ -67,7 +74,7 @@ describe('Authentication Flow Integration Tests', () => {
       })
 
       // Mock auth state change
-      mockSupabase.auth.onAuthStateChange.mockImplementation((callback: any) => {
+      mockSupabase.auth.onAuthStateChange.mockImplementation((callback: (event: string, session: unknown) => void) => {
         callback('SIGNED_IN', {
           user: { id: '1', email: 'test@example.com' },
           session: { access_token: 'token' }
@@ -102,7 +109,7 @@ describe('Authentication Flow Integration Tests', () => {
         error: { message: 'Invalid login credentials' },
       })
 
-      mockSupabase.auth.onAuthStateChange.mockImplementation((callback: any) => {
+      mockSupabase.auth.onAuthStateChange.mockImplementation((callback: (event: string, session: unknown) => void) => {
         callback('SIGNED_OUT', null)
         return { data: { subscription: { unsubscribe: jest.fn() } } }
       })
@@ -140,7 +147,7 @@ describe('Authentication Flow Integration Tests', () => {
         error: null,
       })
 
-      mockSupabase.auth.onAuthStateChange.mockImplementation((callback: any) => {
+      mockSupabase.auth.onAuthStateChange.mockImplementation((callback: (event: string, session: unknown) => void) => {
         callback('SIGNED_UP', {
           user: { id: '1', email: 'test@example.com' },
           session: null
@@ -165,7 +172,6 @@ describe('Authentication Flow Integration Tests', () => {
 
   describe('Logout Flow', () => {
     it('should complete successful logout flow', async () => {
-      const user = userEvent.setup()
 
       // Mock successful logout
       mockSupabase.auth.signOut.mockResolvedValue({
@@ -173,7 +179,7 @@ describe('Authentication Flow Integration Tests', () => {
       })
 
       // Mock auth state change to signed out
-      mockSupabase.auth.onAuthStateChange.mockImplementation((callback: any) => {
+      mockSupabase.auth.onAuthStateChange.mockImplementation((callback: (event: string, session: unknown) => void) => {
         callback('SIGNED_OUT', null)
         return { data: { subscription: { unsubscribe: jest.fn() } } }
       })
@@ -204,7 +210,7 @@ describe('Authentication Flow Integration Tests', () => {
         error: null,
       })
 
-      mockSupabase.auth.onAuthStateChange.mockImplementation((callback: any) => {
+      mockSupabase.auth.onAuthStateChange.mockImplementation((callback: (event: string, session: unknown) => void) => {
         callback('SIGNED_IN', {
           user: { id: '1', email: 'test@example.com' },
           session: { access_token: 'token' }

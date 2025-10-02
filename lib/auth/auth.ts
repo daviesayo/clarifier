@@ -3,7 +3,7 @@ import type { LoginFormData, SignupFormData } from './schemas'
 import type { User, Session } from '@supabase/supabase-js'
 
 // Error logging utility
-function logError(operation: string, error: any, context?: any) {
+function logError(operation: string, error: unknown, context?: unknown) {
   const timestamp = new Date().toISOString();
   const errorInfo = {
     timestamp,
@@ -159,7 +159,7 @@ export async function signupUser(formData: SignupFormData): Promise<AuthResult> 
           console.error('Profile error details:', JSON.stringify(profileError, null, 2))
           // Don't fail the signup if profile creation fails
         } else {
-          console.log('Profile created successfully for user:', data.user.id)
+          console.log('Profile created successfully for user:', result.data.user.id)
         }
       } catch (profileError) {
         console.error('Profile creation failed after retries:', profileError);
@@ -205,7 +205,7 @@ export async function logoutUser(): Promise<AuthResult> {
     return {
       success: true,
     }
-  } catch (error) {
+  } catch {
     return {
       success: false,
       error: {
@@ -226,7 +226,7 @@ export async function getCurrentUser() {
     }
     
     return user
-  } catch (error) {
+  } catch {
     return null
   }
 }

@@ -29,7 +29,12 @@ const mockCreateClient = createClient as jest.MockedFunction<typeof createClient
 
 describe('AuthGuard', () => {
   const mockChildren = <div>Protected Content</div>
-  let mockSupabase: any
+  let mockSupabase: {
+    auth: {
+      getSession: jest.Mock
+      onAuthStateChange: jest.Mock
+    }
+  }
 
   beforeEach(() => {
     mockSupabase = {

@@ -10,7 +10,14 @@ import { createClient } from '@/lib/supabase/client'
 const mockCreateClient = createClient as jest.MockedFunction<typeof createClient>
 
 describe('Authentication Functions', () => {
-  let mockSupabase: any
+  let mockSupabase: {
+    auth: {
+      signInWithPassword: jest.Mock
+      signUp: jest.Mock
+      signOut: jest.Mock
+    }
+    from: jest.Mock
+  }
 
   beforeEach(() => {
     mockSupabase = {
