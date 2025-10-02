@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { MessageBubbleProps } from './ChatWindow';
 
-export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, className }) => {
+export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, intensity, className }) => {
   const [showTimestamp, setShowTimestamp] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -75,6 +75,22 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, className
               {displayContent}
             </p>
           </div>
+
+          {/* Intensity indicator for assistant messages */}
+          {!isUser && intensity && (
+            <div className="mt-2 flex items-center">
+              <span
+                className={cn(
+                  "inline-flex items-center px-2 py-1 rounded-full text-xs font-medium",
+                  intensity === 'basic'
+                    ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"
+                    : "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200"
+                )}
+              >
+                {intensity === 'basic' ? 'Basic' : 'Deep'} Mode
+              </span>
+            </div>
+          )}
 
           {/* Expand/collapse button for long messages */}
           {isLongMessage && (

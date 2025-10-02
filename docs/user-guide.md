@@ -67,9 +67,32 @@ The main dashboard provides:
 
 Clarifier's questioning mode helps gather context:
 1. **Start a Session**: Click "New Questioning Session"
-2. **Answer Questions**: Respond to AI-generated questions
-3. **Build Context**: The AI learns about your needs and goals
-4. **Generate Ideas**: Use the gathered context for idea generation
+2. **Choose Intensity**: Select between Basic or Deep questioning style
+3. **Answer Questions**: Respond to AI-generated questions
+4. **Build Context**: The AI learns about your needs and goals
+5. **Generate Ideas**: Use the gathered context for idea generation
+
+#### Questioning Intensity
+
+Clarifier offers two questioning styles to match your preferences:
+
+**Basic Mode** (Gentle & Focused)
+- Simple, direct questions
+- No complex calculations or financial projections
+- One topic at a time
+- Perfect for quick guidance and straightforward exploration
+
+**Deep Mode** (Thorough & Comprehensive)
+- Detailed analysis and multi-step reasoning
+- Financial projections and calculations
+- Comprehensive exploration of all aspects
+- Best for in-depth research and thorough planning
+
+**How to Change Intensity:**
+1. Look for the "Questioning Style" toggle above the chat input
+2. Click "Basic" for gentle questions or "Deep" for thorough exploration
+3. Your preference is automatically saved and will persist across sessions
+4. The current mode is indicated by a colored badge on AI responses
 
 ### Generation Mode
 

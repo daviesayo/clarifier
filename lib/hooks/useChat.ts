@@ -22,15 +22,26 @@ export interface UseChatReturn {
   questionCount: number;
   status: 'questioning' | 'generating' | 'completed';
   error: string | null;
+  intensity: 'basic' | 'deep';
+  setIntensity: (intensity: 'basic' | 'deep') => void;
   sendMessage: (message: string) => Promise<void>;
   generateIdeas: () => Promise<void>;
-  createSession: (domain: string) => Promise<void>;
+  createSession: (domain: string, intensity?: 'basic' | 'deep') => Promise<void>;
   clearMessages: () => void;
   retryLastMessage: () => Promise<void>;
 }
 
 export function useChat(options: UseChatOptions = {}): UseChatReturn {
-  const { domain, intensity = 'deep', onError, onSessionComplete } = options;
+  const { domain, onError, onSessionComplete } = options;
+  
+  // Initialize intensity from localStorage or default to 'deep'
+  const [intensity, setIntensityState] = useState<'basic' | 'deep'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('clarifier-intensity');
+      return (saved === 'basic' || saved === 'deep') ? saved : 'deep';
+    }
+    return 'deep';
+  });
   
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -43,6 +54,14 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
   
   const lastMessageRef = useRef<string>('');
   const lastSessionIdRef = useRef<string | null>(null);
+
+  // Function to update intensity and persist to localStorage
+  const setIntensity = useCallback((newIntensity: 'basic' | 'deep') => {
+    setIntensityState(newIntensity);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('clarifier-intensity', newIntensity);
+    }
+  }, []);
 
   const addMessage = useCallback((message: Omit<ChatMessage, 'id' | 'timestamp'>) => {
     const newMessage: ChatMessage = {
@@ -157,14 +176,14 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
     lastSessionIdRef.current = null;
   }, []);
 
-  const createSession = useCallback(async (domain: string) => {
+  const createSession = useCallback(async (domain: string, sessionIntensity?: 'basic' | 'deep') => {
     if (isLoading || isGenerating) return;
 
     setError(null);
     setIsLoading(true);
 
     try {
-      const response = await apiCreateSession(domain, intensity);
+      const response = await apiCreateSession(domain, sessionIntensity || intensity);
       
       // Update session state
       setSessionId(response.sessionId);
@@ -213,6 +232,8 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
     questionCount,
     status,
     error,
+    intensity,
+    setIntensity,
     sendMessage,
     generateIdeas,
     createSession,

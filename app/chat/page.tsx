@@ -21,6 +21,8 @@ export default function ChatPage() {
     questionCount,
     status,
     error,
+    intensity,
+    setIntensity,
     sendMessage,
     generateIdeas,
     createSession,
@@ -45,9 +47,9 @@ export default function ChatPage() {
     setSelectedDomain(domain);
     setShowDomainSelector(false);
     
-    // Create a new session with the selected domain
+    // Create a new session with the selected domain and current intensity
     try {
-      await createSession(domain);
+      await createSession(domain, intensity);
     } catch (error) {
       console.error('Failed to create session:', error);
       // Reset to domain selector if session creation fails
@@ -232,6 +234,8 @@ export default function ChatPage() {
             isGenerating={isGenerating}
             canGenerate={canGenerate}
             questionCount={questionCount}
+            intensity={intensity}
+            onIntensityChange={setIntensity}
             onSendMessage={sendMessage}
             onGenerateIdeas={generateIdeas}
             className="h-full"

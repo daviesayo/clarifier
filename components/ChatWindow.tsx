@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { MessageBubble } from './MessageBubble';
 import { ChatInput } from './ChatInput';
+import { IntensitySelector } from './IntensitySelector';
 import { Button } from './ui/button';
 import { cn } from '@/lib/utils';
 
@@ -19,6 +20,8 @@ export interface ChatWindowProps {
   isGenerating?: boolean;
   canGenerate?: boolean;
   questionCount?: number;
+  intensity?: 'basic' | 'deep';
+  onIntensityChange?: (intensity: 'basic' | 'deep') => void;
   onSendMessage: (message: string) => void;
   onGenerateIdeas: () => void;
   className?: string;
@@ -26,6 +29,7 @@ export interface ChatWindowProps {
 
 export interface MessageBubbleProps {
   message: ChatMessage;
+  intensity?: 'basic' | 'deep';
   className?: string;
 }
 
@@ -110,6 +114,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   isGenerating = false,
   canGenerate = false,
   questionCount = 0,
+  intensity = 'deep',
+  onIntensityChange,
   onSendMessage,
   onGenerateIdeas,
   className
@@ -173,6 +179,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
               <MessageBubble
                 key={message.id}
                 message={message}
+                intensity={intensity}
                 className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300"
               />
             ))}
@@ -197,6 +204,17 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
 
       {/* Input area */}
       <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
+        {/* Intensity Selector */}
+        {onIntensityChange && (
+          <div className="mb-4">
+            <IntensitySelector
+              intensity={intensity}
+              onIntensityChange={onIntensityChange}
+              disabled={isLoading || isGenerating}
+            />
+          </div>
+        )}
+        
         {canGenerate && !isGenerating && (
           <div className="mb-4">
             <GenerateIdeasButton
