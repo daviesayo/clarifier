@@ -116,10 +116,10 @@ const DEFAULT_CONFIG: Required<LangChainClientOptions> = {
 const MAX_HISTORY_LENGTH = 10;
 
 /**
- * Retry configuration for failed requests (reduced to prevent token burning)
+ * Retry configuration for failed requests
  */
 const RETRY_CONFIG = {
-  maxRetries: 1, // Reduced from 3 to 1
+  maxRetries: 2, // Reasonable retry count for normal operation
   initialDelay: 1000, // 1 second
   maxDelay: 10000, // 10 seconds
   backoffMultiplier: 2,
@@ -384,19 +384,19 @@ async function invokeWithRetry(
         },
       });
 
-      // Check if error is rate limiting - stop immediately to prevent token burning
+      // Check if error is rate limiting - only stop on confirmed rate limits
       const errorStatus = (error as { status?: number })?.status;
       const errorMessage = error instanceof Error ? error.message.toLowerCase() : '';
       
+      // Only stop immediately on confirmed rate limit errors (429 status or explicit rate limit messages)
       if (errorStatus === 429 || 
-          errorMessage.includes('rate limit') || 
-          errorMessage.includes('quota') ||
-          errorMessage.includes('limit exceeded')) {
+          (errorMessage.includes('rate limit') && errorMessage.includes('exceeded')) ||
+          (errorMessage.includes('quota') && errorMessage.includes('exceeded'))) {
         log({
           timestamp: new Date().toISOString(),
           level: 'ERROR',
           domain: 'llm',
-          message: 'Rate limit hit, stopping retries to prevent token burning',
+          message: 'Confirmed rate limit hit, stopping retries to prevent token burning',
           metadata: {
             error: errorMessage,
             status: errorStatus,

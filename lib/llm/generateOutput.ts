@@ -98,9 +98,9 @@ const FALLBACK_MODEL = 'openai/gpt-4o';
 const GENERATION_TEMPERATURE = 0.7;
 
 /**
- * Maximum retries for API calls (reduced to prevent token burning)
+ * Maximum retries for API calls
  */
-const MAX_RETRIES = 1;
+const MAX_RETRIES = 2;
 
 /**
  * Base delay for exponential backoff (milliseconds)
@@ -281,10 +281,10 @@ function isRetryableError(error: Error): boolean {
   const errorMessage = error.message.toLowerCase();
   
   // Rate limit errors should NOT be retried to prevent token burning
-  if (errorMessage.includes('rate limit') || 
-      errorMessage.includes('429') || 
-      errorMessage.includes('quota') ||
-      errorMessage.includes('limit exceeded')) {
+  // Only stop on confirmed rate limit errors
+  if (errorMessage.includes('429') || 
+      (errorMessage.includes('rate limit') && errorMessage.includes('exceeded')) ||
+      (errorMessage.includes('quota') && errorMessage.includes('exceeded'))) {
     return false;
   }
   

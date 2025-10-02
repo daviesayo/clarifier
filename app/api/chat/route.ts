@@ -491,10 +491,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
           throw new Error('Brief is required for generation but was not provided');
         }
 
-        // Add retry logic for generation (reduced to prevent token burning)
+        // Add retry logic for generation
         let generationResult: { wordCount: number; model: string; rawOutput: string; structuredOutput: Record<string, unknown> | null } | undefined;
         let generationAttempts = 0;
-        const maxGenerationRetries = 1; // Reduced from 2 to 1
+        const maxGenerationRetries = 2; // Reasonable retry count
 
         while (generationAttempts <= maxGenerationRetries) {
           try {
@@ -513,13 +513,12 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
             generationAttempts++;
             const errorMessage = error instanceof Error ? error.message.toLowerCase() : '';
             
-            // Check for rate limit errors - don't retry these
-            if (errorMessage.includes('rate limit') || 
-                errorMessage.includes('429') || 
-                errorMessage.includes('quota') ||
-                errorMessage.includes('limit exceeded')) {
-              console.error(`Rate limit hit for session ${currentSessionId}, stopping retries to prevent token burning:`, error);
-              throw error; // Stop immediately on rate limits
+            // Check for confirmed rate limit errors - don't retry these
+            if (errorMessage.includes('429') || 
+                (errorMessage.includes('rate limit') && errorMessage.includes('exceeded')) ||
+                (errorMessage.includes('quota') && errorMessage.includes('exceeded'))) {
+              console.error(`Confirmed rate limit hit for session ${currentSessionId}, stopping retries to prevent token burning:`, error);
+              throw error; // Stop immediately on confirmed rate limits
             }
             
             console.warn(`Generation attempt ${generationAttempts} failed for session ${currentSessionId}:`, error);
