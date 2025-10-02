@@ -8,6 +8,51 @@ import { generateOutput, GenerationError, ValidationError as GenerationValidatio
 import { sessionService } from '@/lib/database/sessions';
 import { profileService } from '@/lib/database/profiles';
 
+// Helper function to ensure user profile exists
+async function ensureUserProfile(supabase: Awaited<ReturnType<typeof createClient>>, user: { id: string; email?: string }): Promise<void> {
+  try {
+    // Check if profile already exists
+    const { data: existingProfile, error: fetchError } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('id', user.id)
+      .single();
+
+    // If profile exists, we're done
+    if (existingProfile && !fetchError) {
+      return;
+    }
+
+    // If profile doesn't exist (PGRST116 error), create it
+    if (fetchError && fetchError.code === 'PGRST116') {
+      console.log('Creating profile for user:', user.id);
+      
+      const { error: createError } = await supabase
+        .from('profiles')
+        .insert({
+          id: user.id,
+          email: user.email,
+          usage_count: 0,
+          tier: 'free'
+        });
+
+      if (createError) {
+        console.error('Failed to create user profile:', createError);
+        throw new Error(`Failed to create user profile: ${createError.message}`);
+      }
+      
+      console.log('Profile created successfully for user:', user.id);
+    } else if (fetchError) {
+      // Some other error occurred
+      console.error('Error checking user profile:', fetchError);
+      throw new Error(`Failed to check user profile: ${fetchError.message}`);
+    }
+  } catch (error) {
+    console.error('Error in ensureUserProfile:', error);
+    throw error;
+  }
+}
+
 // TypeScript interfaces
 export interface ChatRequest {
   sessionId?: string; // Undefined for new sessions
@@ -182,6 +227,9 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
         { status: 401 }
       );
     }
+
+    // Ensure user profile exists before checking rate limits
+    await ensureUserProfile(supabase, user);
 
     // Check rate limiting before creating new sessions
     if (!sessionId) {

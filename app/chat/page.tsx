@@ -6,7 +6,7 @@ import { useChat, ChatApiError } from '@/lib/hooks/useChat';
 import { Domain } from '@/lib/prompts';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { X, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 
 export default function ChatPage() {
   const [selectedDomain, setSelectedDomain] = useState<Domain | null>(null);
@@ -23,10 +23,10 @@ export default function ChatPage() {
     error,
     sendMessage,
     generateIdeas,
+    createSession,
     clearMessages,
     retryLastMessage,
   } = useChat({
-    ...(selectedDomain && { domain: selectedDomain }),
     onError: (error: ChatApiError) => {
       console.error('Chat error:', error);
     },
@@ -41,9 +41,19 @@ export default function ChatPage() {
     // For now, we'll just show the domain selector
   }, []);
 
-  const handleDomainSelect = (domain: Domain) => {
+  const handleDomainSelect = async (domain: Domain) => {
     setSelectedDomain(domain);
     setShowDomainSelector(false);
+    
+    // Create a new session with the selected domain
+    try {
+      await createSession(domain);
+    } catch (error) {
+      console.error('Failed to create session:', error);
+      // Reset to domain selector if session creation fails
+      setShowDomainSelector(true);
+      setSelectedDomain(null);
+    }
   };
 
   const handleStartNewSession = () => {
@@ -55,6 +65,44 @@ export default function ChatPage() {
   const handleRetry = () => {
     if (error) {
       retryLastMessage();
+    }
+  };
+
+  const getErrorType = (errorMessage: string) => {
+    if (errorMessage.includes('Rate limit exceeded')) return 'rate-limit';
+    if (errorMessage.includes('Network error')) return 'network';
+    if (errorMessage.includes('Server error')) return 'server';
+    if (errorMessage.includes('Authentication')) return 'auth';
+    return 'generic';
+  };
+
+  const getErrorIcon = (errorType: string) => {
+    switch (errorType) {
+      case 'rate-limit':
+        return '⚠️';
+      case 'network':
+        return '📡';
+      case 'server':
+        return '🔧';
+      case 'auth':
+        return '🔐';
+      default:
+        return '❌';
+    }
+  };
+
+  const getErrorTitle = (errorType: string) => {
+    switch (errorType) {
+      case 'rate-limit':
+        return 'Rate Limit Exceeded';
+      case 'network':
+        return 'Connection Error';
+      case 'server':
+        return 'Server Error';
+      case 'auth':
+        return 'Authentication Required';
+      default:
+        return 'Error';
     }
   };
 
@@ -140,20 +188,37 @@ export default function ChatPage() {
         {error && (
           <div className="px-4 py-2">
             <Alert className="border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20">
-              <X className="h-4 w-4 text-red-600 dark:text-red-400" />
-              <AlertDescription className="text-red-800 dark:text-red-200">
-                <div className="flex items-center justify-between">
-                  <span>{error}</span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleRetry}
-                    className="ml-4 text-red-600 border-red-300 hover:bg-red-100 dark:text-red-400 dark:border-red-700 dark:hover:bg-red-900/20"
-                  >
-                    Retry
-                  </Button>
+              <div className="flex items-start space-x-3">
+                <span className="text-lg">{getErrorIcon(getErrorType(error))}</span>
+                <div className="flex-1">
+                  <div className="font-medium text-red-800 dark:text-red-200 mb-1">
+                    {getErrorTitle(getErrorType(error))}
+                  </div>
+                  <AlertDescription className="text-red-700 dark:text-red-300">
+                    {error}
+                  </AlertDescription>
+                  <div className="mt-3 flex space-x-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleRetry}
+                      className="text-red-600 border-red-300 hover:bg-red-100 dark:text-red-400 dark:border-red-700 dark:hover:bg-red-900/20"
+                    >
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Retry
+                    </Button>
+                    {getErrorType(error) === 'rate-limit' && (
+                      <Button
+                        variant="default"
+                        size="sm"
+                        className="bg-blue-600 hover:bg-blue-700 text-white"
+                      >
+                        Upgrade to Pro
+                      </Button>
+                    )}
+                  </div>
                 </div>
-              </AlertDescription>
+              </div>
             </Alert>
           </div>
         )}

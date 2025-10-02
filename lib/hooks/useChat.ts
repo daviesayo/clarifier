@@ -1,31 +1,10 @@
 import { useState, useCallback, useRef } from 'react';
 import { ChatMessage } from '@/components/ChatWindow';
+import { sendMessage as apiSendMessage, generateIdeas as apiGenerateIdeas, createSession as apiCreateSession, ChatApiError } from '@/lib/api/chat';
+import { ChatResponse } from '@/app/api/chat/route';
 
-// API response types matching the chat route
-export interface ChatApiResponse {
-  sessionId: string;
-  responseMessage: string;
-  isCompleted: boolean;
-  status: 'questioning' | 'generating' | 'completed';
-  questionCount?: number;
-  canGenerate?: boolean;
-  suggestedTermination?: boolean;
-  finalOutput?: {
-    brief: string;
-    generatedIdeas: Record<string, unknown>;
-  };
-  error?: string;
-}
-
-export interface ChatApiError {
-  error: string;
-  code?: string;
-  details?: string;
-  message?: string;
-  remaining?: number;
-  limit?: number;
-  tier?: string;
-}
+// Re-export ChatApiError for backward compatibility
+export type { ChatApiError };
 
 export interface UseChatOptions {
   domain?: string;
@@ -45,6 +24,7 @@ export interface UseChatReturn {
   error: string | null;
   sendMessage: (message: string) => Promise<void>;
   generateIdeas: () => Promise<void>;
+  createSession: (domain: string) => Promise<void>;
   clearMessages: () => void;
   retryLastMessage: () => Promise<void>;
 }
@@ -76,27 +56,14 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
   const callChatApi = useCallback(async (
     message: string, 
     generateNow: boolean = false
-  ): Promise<ChatApiResponse> => {
-    const response = await fetch('/api/chat', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        sessionId: sessionId || undefined,
-        message,
-        domain: sessionId ? undefined : domain, // Only send domain for new sessions
-        generateNow,
-        intensity,
-      }),
+  ): Promise<ChatResponse> => {
+    return apiSendMessage({
+      ...(sessionId && { sessionId }),
+      message,
+      ...(sessionId ? {} : { domain }), // Only send domain for new sessions
+      generateNow,
+      intensity,
     });
-
-    if (!response.ok) {
-      const errorData: ChatApiError = await response.json();
-      throw errorData;
-    }
-
-    return response.json();
   }, [sessionId, domain, intensity]);
 
   const sendMessage = useCallback(async (message: string) => {
@@ -135,7 +102,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
 
     } catch (err) {
       const error = err as ChatApiError;
-      setError(error.message || error.error || 'Failed to send message');
+      setError(error.message || 'Failed to send message');
       onError?.(error);
       
       // Remove the user message if it failed
@@ -146,13 +113,13 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
   }, [isLoading, isGenerating, addMessage, callChatApi, onError, onSessionComplete]);
 
   const generateIdeas = useCallback(async () => {
-    if (!canGenerate || isGenerating || isLoading) return;
+    if (!canGenerate || isGenerating || isLoading || !sessionId) return;
 
     setError(null);
     setIsGenerating(true);
 
     try {
-      const response = await callChatApi('', true); // Empty message for generation
+      const response = await apiGenerateIdeas(sessionId);
       
       // Update session state
       setSessionId(response.sessionId);
@@ -172,12 +139,12 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
 
     } catch (err) {
       const error = err as ChatApiError;
-      setError(error.message || error.error || 'Failed to generate ideas');
+      setError(error.message || 'Failed to generate ideas');
       onError?.(error);
     } finally {
       setIsGenerating(false);
     }
-  }, [canGenerate, isGenerating, isLoading, callChatApi, addMessage, onError, onSessionComplete]);
+  }, [canGenerate, isGenerating, isLoading, sessionId, addMessage, onError, onSessionComplete]);
 
   const clearMessages = useCallback(() => {
     setMessages([]);
@@ -189,6 +156,37 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
     lastMessageRef.current = '';
     lastSessionIdRef.current = null;
   }, []);
+
+  const createSession = useCallback(async (domain: string) => {
+    if (isLoading || isGenerating) return;
+
+    setError(null);
+    setIsLoading(true);
+
+    try {
+      const response = await apiCreateSession(domain, intensity);
+      
+      // Update session state
+      setSessionId(response.sessionId);
+      lastSessionIdRef.current = response.sessionId;
+      setCanGenerate(response.canGenerate || false);
+      setQuestionCount(response.questionCount || 0);
+      setStatus(response.status);
+
+      // Add assistant welcome message
+      addMessage({
+        role: 'assistant',
+        content: response.responseMessage,
+      });
+
+    } catch (err) {
+      const error = err as ChatApiError;
+      setError(error.message || 'Failed to create session');
+      onError?.(error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [isLoading, isGenerating, intensity, addMessage, onError]);
 
   const retryLastMessage = useCallback(async () => {
     if (!lastMessageRef.current) return;
@@ -217,6 +215,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
     error,
     sendMessage,
     generateIdeas,
+    createSession,
     clearMessages,
     retryLastMessage,
   };
