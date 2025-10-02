@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
-import { checkRateLimit, incrementUsage, getRateLimitHeaders } from '@/lib/rateLimit';
+import { checkRateLimit, getRateLimitHeaders } from '@/lib/rateLimit';
 import { continueConversation, ConversationMessage, ValidationError as ConversationValidationError } from '@/lib/llm/conversationLoop';
 import { synthesizeBrief, SynthesisError, ValidationError as SynthesisValidationError } from '@/lib/llm/synthesizeBrief';
+import { generateOutput, GenerationError, ValidationError as GenerationValidationError } from '@/lib/llm/generateOutput';
+import { sessionService } from '@/lib/database/sessions';
+import { profileService } from '@/lib/database/profiles';
 
 // TypeScript interfaces
 export interface ChatRequest {
@@ -363,12 +366,57 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
 
         currentSessionStatus = 'generating';
 
-        // TODO: Implement generation phase in future (will use the brief)
-        responseMessage = `Context synthesis complete! Your ${currentDomain} brief has been created and we're ready to generate ideas. (Generation phase coming soon)`;
+        // Step 3: Generate final output
+        console.log(`Starting output generation for session ${currentSessionId}`);
+        const generationStartTime = Date.now();
+
+        const generationResult = await generateOutput({
+          domain: currentDomain,
+          brief,
+        });
+
+        const generationDuration = Date.now() - generationStartTime;
+        console.log(`Output generation completed in ${generationDuration}ms for session ${currentSessionId}`);
+        console.log(`Generation metrics: ${generationResult.wordCount} words, model: ${generationResult.model}`);
+
+        // Step 4: Update session with final output and completed status
+        // Cast to Json type for database storage
+        const finalOutput = JSON.parse(
+          JSON.stringify(generationResult.structuredOutput || { raw: generationResult.rawOutput })
+        );
+        
+        const updateResult = await sessionService.updateSession(currentSessionId, {
+          final_output: finalOutput,
+          status: 'completed',
+        });
+
+        if (updateResult.error) {
+          console.error('Failed to update session with output:', updateResult.error);
+          return NextResponse.json(
+            { 
+              error: 'Failed to save generation results',
+              code: 'DATABASE_UPDATE_ERROR',
+              details: 'Unable to update session with generated output'
+            },
+            { status: 500 }
+          );
+        }
+
+        currentSessionStatus = 'completed';
+
+        // Step 5: Increment usage count on successful generation
+        const usageResult = await profileService.incrementUsageCount(user.id);
+        if (usageResult.error) {
+          console.error('Failed to increment usage count:', usageResult.error);
+          // Don't fail the request, just log the error
+        }
+
+        // Format response message
+        responseMessage = `Generation complete! Here's your ${currentDomain} output:\n\n${generationResult.rawOutput}`;
         isCompleted = true;
 
       } catch (error: unknown) {
-        console.error('Synthesis failed:', error);
+        console.error('Generation phase failed:', error);
 
         // Handle specific error types
         if (error instanceof SynthesisValidationError) {
@@ -393,11 +441,33 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
           );
         }
 
+        if (error instanceof GenerationValidationError) {
+          return NextResponse.json(
+            { 
+              error: 'Invalid data for generation',
+              code: 'GENERATION_VALIDATION_ERROR',
+              details: error.message
+            },
+            { status: 400 }
+          );
+        }
+
+        if (error instanceof GenerationError) {
+          return NextResponse.json(
+            { 
+              error: 'Failed to generate output',
+              code: 'GENERATION_ERROR',
+              details: error.message
+            },
+            { status: 500 }
+          );
+        }
+
         // Generic error
         return NextResponse.json(
           { 
-            error: 'An error occurred during synthesis',
-            code: 'SYNTHESIS_UNKNOWN_ERROR',
+            error: 'An error occurred during generation phase',
+            code: 'GENERATION_UNKNOWN_ERROR',
             details: error instanceof Error ? error.message : 'Unknown error'
           },
           { status: 500 }
@@ -500,14 +570,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
       // Don't fail the request, just log the error
     }
 
-    // Increment usage count when session completes
-    if (isCompleted && !sessionId) {
-      const { error: incrementError } = await incrementUsage(user.id);
-      if (incrementError) {
-        console.error('Failed to increment usage count:', incrementError);
-        // Don't fail the request, just log the error
-      }
-    }
+    // Note: Usage count is now incremented in the generation phase (after successful generation only)
 
     // Log overall request performance
     const totalDuration = Date.now() - startTime;
