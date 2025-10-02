@@ -26,7 +26,7 @@ export default function ChatPage() {
     clearMessages,
     retryLastMessage,
   } = useChat({
-    domain: selectedDomain || undefined,
+    ...(selectedDomain && { domain: selectedDomain }),
     onError: (error: ChatApiError) => {
       console.error('Chat error:', error);
     },
