@@ -274,12 +274,14 @@ export async function createSession(
  * Generates ideas for the current session
  * 
  * @param sessionId - The current session ID
+ * @param intensity - The intensity level for generation (optional, defaults to 'deep')
  * @returns Promise resolving to ChatResponse with generated ideas
  */
-export async function generateIdeas(sessionId: string): Promise<ChatResponse> {
+export async function generateIdeas(sessionId: string, intensity?: 'basic' | 'deep'): Promise<ChatResponse> {
   return sendMessage({
     sessionId,
     message: 'Generate ideas now',
     generateNow: true,
+    intensity: intensity || 'deep',
   });
 }

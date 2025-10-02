@@ -491,10 +491,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
           throw new Error('Brief is required for generation but was not provided');
         }
 
-        // Add retry logic for generation
+        // Add retry logic for generation (reduced to prevent token burning)
         let generationResult: { wordCount: number; model: string; rawOutput: string; structuredOutput: Record<string, unknown> | null } | undefined;
         let generationAttempts = 0;
-        const maxGenerationRetries = 2;
+        const maxGenerationRetries = 1; // Reduced from 2 to 1
 
         while (generationAttempts <= maxGenerationRetries) {
           try {
@@ -511,6 +511,17 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
             break; // Success, exit retry loop
           } catch (error) {
             generationAttempts++;
+            const errorMessage = error instanceof Error ? error.message.toLowerCase() : '';
+            
+            // Check for rate limit errors - don't retry these
+            if (errorMessage.includes('rate limit') || 
+                errorMessage.includes('429') || 
+                errorMessage.includes('quota') ||
+                errorMessage.includes('limit exceeded')) {
+              console.error(`Rate limit hit for session ${currentSessionId}, stopping retries to prevent token burning:`, error);
+              throw error; // Stop immediately on rate limits
+            }
+            
             console.warn(`Generation attempt ${generationAttempts} failed for session ${currentSessionId}:`, error);
             
             if (generationAttempts > maxGenerationRetries) {
@@ -518,7 +529,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<ChatRespo
               throw error; // Re-throw if max retries exceeded
             }
             
-            // Wait before retry (exponential backoff)
+            // Wait before retry (exponential backoff) - only for non-rate-limit errors
             const retryDelay = 1000 * generationAttempts;
             console.log(`Waiting ${retryDelay}ms before retry ${generationAttempts + 1} for session ${currentSessionId}`);
             await new Promise(resolve => setTimeout(resolve, retryDelay));

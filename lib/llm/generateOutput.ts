@@ -98,9 +98,9 @@ const FALLBACK_MODEL = 'openai/gpt-4o';
 const GENERATION_TEMPERATURE = 0.7;
 
 /**
- * Maximum retries for API calls
+ * Maximum retries for API calls (reduced to prevent token burning)
  */
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 1;
 
 /**
  * Base delay for exponential backoff (milliseconds)
@@ -214,6 +214,7 @@ function createGenerationClient(model: string): ChatOpenAI {
     },
     temperature: GENERATION_TEMPERATURE,
     timeout: GENERATION_TIMEOUT,
+    maxRetries: 0, // Disable LangChain retries to prevent token burning
   });
 }
 
@@ -278,14 +279,22 @@ function parseStructuredOutput(rawOutput: string, domain: string): Record<string
  */
 function isRetryableError(error: Error): boolean {
   const errorMessage = error.message.toLowerCase();
+  
+  // Rate limit errors should NOT be retried to prevent token burning
+  if (errorMessage.includes('rate limit') || 
+      errorMessage.includes('429') || 
+      errorMessage.includes('quota') ||
+      errorMessage.includes('limit exceeded')) {
+    return false;
+  }
+  
+  // Only retry network/timeout issues
   return (
     errorMessage.includes('timeout') ||
     errorMessage.includes('network') ||
     errorMessage.includes('econnreset') ||
     errorMessage.includes('enotfound') ||
-    errorMessage.includes('429') ||
-    errorMessage.includes('503') ||
-    errorMessage.includes('rate limit')
+    errorMessage.includes('503')
   );
 }
 

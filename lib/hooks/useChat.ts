@@ -159,7 +159,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
     setIsGenerating(true);
 
     try {
-      const response = await apiGenerateIdeas(sessionId);
+      const response = await apiGenerateIdeas(sessionId, intensity);
       
       // Update session state
       setSessionId(response.sessionId);
@@ -186,7 +186,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
     } finally {
       setIsGenerating(false);
     }
-  }, [canGenerate, isGenerating, isLoading, sessionId, addMessage, onError, onSessionComplete]);
+  }, [canGenerate, isGenerating, isLoading, sessionId, intensity, addMessage, onError, onSessionComplete]);
 
   const clearMessages = useCallback(() => {
     setMessages([]);

@@ -274,6 +274,7 @@ function createSynthesisClient(): ChatOpenAI {
     },
     temperature: SYNTHESIS_TEMPERATURE,
     timeout: SYNTHESIS_TIMEOUT,
+    maxRetries: 0, // Disable LangChain retries to prevent token burning
   });
 }
 

@@ -116,10 +116,10 @@ const DEFAULT_CONFIG: Required<LangChainClientOptions> = {
 const MAX_HISTORY_LENGTH = 10;
 
 /**
- * Retry configuration for failed requests
+ * Retry configuration for failed requests (reduced to prevent token burning)
  */
 const RETRY_CONFIG = {
-  maxRetries: 3,
+  maxRetries: 1, // Reduced from 3 to 1
   initialDelay: 1000, // 1 second
   maxDelay: 10000, // 10 seconds
   backoffMultiplier: 2,
@@ -384,12 +384,30 @@ async function invokeWithRetry(
         },
       });
 
-      // Check if error is rate limiting
+      // Check if error is rate limiting - stop immediately to prevent token burning
       const errorStatus = (error as { status?: number })?.status;
-      const errorMessage = error instanceof Error ? error.message : '';
-      if (errorStatus === 429 || errorMessage.includes('rate limit')) {
-        // Wait longer for rate limit errors
-        delay = Math.min(delay * 2, RETRY_CONFIG.maxDelay);
+      const errorMessage = error instanceof Error ? error.message.toLowerCase() : '';
+      
+      if (errorStatus === 429 || 
+          errorMessage.includes('rate limit') || 
+          errorMessage.includes('quota') ||
+          errorMessage.includes('limit exceeded')) {
+        log({
+          timestamp: new Date().toISOString(),
+          level: 'ERROR',
+          domain: 'llm',
+          message: 'Rate limit hit, stopping retries to prevent token burning',
+          metadata: {
+            error: errorMessage,
+            status: errorStatus,
+            attempt: attempt + 1,
+          },
+        });
+        throw new ConversationError(
+          `Rate limit exceeded: ${errorMessage}`,
+          'RATE_LIMIT_ERROR',
+          lastError
+        );
       }
 
       // Don't retry on validation or authentication errors
