@@ -26,6 +26,15 @@ export type Domain = 'business' | 'product' | 'creative' | 'research' | 'coding'
 export type PromptIntensity = 'basic' | 'deep';
 
 /**
+ * Function signature for generation prompt templates
+ * Takes a synthesized brief and returns a formatted generation prompt
+ * 
+ * @param brief - The synthesized brief from the questioning phase
+ * @returns The formatted generation prompt string
+ */
+export type GenerationPromptFunction = (brief: string) => string;
+
+/**
  * Array of all valid domains for runtime validation
  * Used to ensure type safety and provide clear error messages
  */
@@ -187,6 +196,127 @@ Ask ONE technically precise question at a time. Be brutally honest about trade-o
 };
 
 // ============================================================================
+// GENERATION PROMPTS (PHASE 2)
+// ============================================================================
+
+/**
+ * Domain-specific generation prompt templates for Phase 2 (Generation Mode)
+ * 
+ * These prompts guide LLMs to produce high-quality, structured outputs based on
+ * synthesized briefs from the questioning phase. Each domain has a distinct
+ * generation strategy optimized for its use case.
+ * 
+ * @example
+ * ```typescript
+ * const businessPrompt = GENERATION_PROMPTS.business(brief);
+ * const productPrompt = GENERATION_PROMPTS.product(brief);
+ * ```
+ */
+export const GENERATION_PROMPTS: Record<Domain, GenerationPromptFunction> = {
+  business: (brief: string) => `You are a strategic business consultant and startup advisor.
+
+Based on the following brief, generate 5 distinct business model concepts. For each concept, provide:
+
+1. **Value Proposition**: One-sentence description of unique value
+2. **Customer Segments**: Who will pay for this?
+3. **Revenue Streams**: How will this make money?
+4. **Key Activities**: What must be done to deliver this?
+5. **Competitive Advantage**: Why will this succeed?
+
+Make each concept distinct and actionable. Format as a numbered list with clear sections.
+
+BRIEF:
+${brief}
+
+BUSINESS MODEL CONCEPTS:`,
+
+  product: (brief: string) => `You are an expert product manager specializing in feature specification.
+
+Based on the following brief, generate 3 detailed feature specifications. For each specification, provide:
+
+1. **User Story** (Gherkin format):
+   - GIVEN: Initial context
+   - WHEN: User action
+   - THEN: Expected outcome
+
+2. **Acceptance Criteria**: 3-5 specific, testable criteria
+
+3. **Edge Cases**: 2-3 edge cases to consider
+
+4. **Success Metrics**: How to measure if this feature succeeds
+
+Make each specification concrete and implementable. Format with clear headers.
+
+BRIEF:
+${brief}
+
+FEATURE SPECIFICATIONS:`,
+
+  creative: (brief: string) => `You are a creative writing consultant and story architect.
+
+Based on the following brief, generate 3 distinct story outlines. For each outline, provide:
+
+1. **Logline**: One-sentence story summary
+2. **Protagonist**: Name, motivation, flaw
+3. **Setting**: World, time period, atmosphere
+4. **Conflict**: Central obstacle or antagonist
+5. **Three-Act Structure**:
+   - Act 1: Setup and inciting incident
+   - Act 2: Rising action and midpoint twist
+   - Act 3: Climax and resolution
+6. **Themes**: 2-3 thematic elements
+
+Make each outline distinct in tone and approach. Format with clear sections.
+
+BRIEF:
+${brief}
+
+STORY OUTLINES:`,
+
+  research: (brief: string) => `You are an academic research advisor with expertise in methodology design.
+
+Based on the following brief, generate a comprehensive research proposal outline. Include:
+
+1. **Research Question**: Clear, specific, and answerable question
+2. **Objectives**: 3-4 specific research objectives
+3. **Literature Context**: Key areas of existing research to review
+4. **Methodology**:
+   - Research design (qualitative, quantitative, mixed)
+   - Data collection methods
+   - Analysis approach
+5. **Scope and Limitations**: What's in/out of scope
+6. **Timeline**: Suggested phases and milestones
+7. **Expected Contributions**: What new knowledge this will generate
+
+Format with numbered sections and clear headers.
+
+BRIEF:
+${brief}
+
+RESEARCH PROPOSAL:`,
+
+  coding: (brief: string) => `You are a senior software architect and technical lead with expertise in modern development practices.
+
+Based on the following brief, generate 3 detailed technical specifications. For each specification, provide:
+
+1. **Architecture Overview**: High-level system design and key components
+2. **Technology Stack**: Specific technologies, frameworks, and tools
+3. **API Design**: Key endpoints and data structures (if applicable)
+4. **Database Schema**: Core entities and relationships
+5. **Security Considerations**: Authentication, authorization, and data protection
+6. **Performance Requirements**: Scalability, response times, and resource usage
+7. **Deployment Strategy**: Infrastructure, CI/CD, and monitoring
+8. **Development Timeline**: Phases, milestones, and estimated effort
+
+Make each specification distinct in approach and technology choices. Format with clear headers and technical detail.
+
+BRIEF:
+${brief}
+
+TECHNICAL SPECIFICATIONS:`,
+};
+
+// ============================================================================
 // UTILITY FUNCTIONS
 // ============================================================================
 
@@ -292,4 +422,36 @@ export function getAvailableIntensities(): readonly PromptIntensity[] {
  */
 export function hasIntensity(intensity: string): intensity is PromptIntensity {
   return isValidIntensity(intensity);
+}
+
+/**
+ * Retrieves the generation prompt for a specific domain with a synthesized brief
+ * 
+ * This function is used in Phase 2 (Generation Mode) to create the prompt that
+ * guides the LLM in producing structured, domain-specific outputs.
+ * 
+ * @param domain - The domain to get the generation prompt for
+ * @param brief - The synthesized brief from the questioning phase
+ * @returns The formatted generation prompt string with brief interpolated
+ * @throws {InvalidDomainError} If the domain is not valid
+ * @throws {Error} If the brief is empty or invalid
+ * 
+ * @example
+ * ```typescript
+ * const brief = "User wants to build a SaaS product for small businesses...";
+ * const prompt = getGenerationPrompt('business', brief);
+ * // Returns the business generation prompt with the brief interpolated
+ * ```
+ */
+export function getGenerationPrompt(domain: string, brief: string): string {
+  if (!isValidDomain(domain)) {
+    throw new InvalidDomainError(domain);
+  }
+  
+  if (!brief || brief.trim().length === 0) {
+    throw new Error('Brief cannot be empty. A synthesized brief is required for generation.');
+  }
+  
+  const promptFunction = GENERATION_PROMPTS[domain as Domain];
+  return promptFunction(brief);
 }
