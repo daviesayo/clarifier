@@ -85,7 +85,7 @@ export class ValidationError extends Error {
 /**
  * Primary model for generation (fast and cost-effective)
  */
-const PRIMARY_MODEL = 'google/gemini-2.0-flash-exp:free';
+const PRIMARY_MODEL = 'google/gemini-2.5-flash';
 
 /**
  * Fallback model for generation (high quality)

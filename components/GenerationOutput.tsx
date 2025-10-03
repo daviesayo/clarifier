@@ -115,10 +115,13 @@ export default function GenerationOutput({
       const copyState = state.copyStates[sectionId] || 'idle';
 
       return (
-        <Card key={key} className="mb-4 print:shadow-none print:border print:border-gray-300 print:mb-6">
-          <CardHeader className="pb-3 print:pb-2">
+        <Card 
+          key={key} 
+          className="group mb-6 transition-all duration-200 hover:shadow-lg hover:shadow-black/5 dark:hover:shadow-black/20 print:shadow-none print:border print:border-gray-300 print:mb-8 print:hover:shadow-none"
+        >
+          <CardHeader className="pb-4 print:pb-3">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-lg font-semibold capitalize print:text-base print:text-black">
+              <CardTitle className="text-xl font-bold capitalize tracking-tight text-gray-900 dark:text-white print:text-lg print:text-black">
                 {key.replace(/_/g, ' ')}
               </CardTitle>
               <Button
@@ -126,7 +129,7 @@ export default function GenerationOutput({
                 size="sm"
                 onClick={() => handleCopy(content, sectionId)}
                 disabled={copyState === 'copying'}
-                className="ml-2 print:hidden"
+                className="ml-3 print:hidden transition-all duration-200 hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 {copyState === 'copying' && <RefreshCw className="w-4 h-4 mr-2 animate-spin" />}
                 {copyState === 'success' && <Check className="w-4 h-4 mr-2 text-green-600" />}
@@ -137,7 +140,7 @@ export default function GenerationOutput({
             </div>
           </CardHeader>
           <CardContent className="print:px-0">
-            <div className="prose prose-sm max-w-none dark:prose-invert print:prose-gray print:text-black">
+            <div className="prose prose-lg max-w-none dark:prose-invert print:prose-gray print:text-black prose-headings:font-bold prose-headings:tracking-tight prose-h1:text-2xl prose-h1:mb-4 prose-h1:mt-6 prose-h2:text-xl prose-h2:mb-3 prose-h2:mt-5 prose-h3:text-lg prose-h3:mb-2 prose-h3:mt-4 prose-p:leading-relaxed prose-p:mb-4 prose-ul:mb-4 prose-ol:mb-4 prose-li:mb-1 prose-code:bg-gray-100 dark:prose-code:bg-gray-800 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm prose-pre:bg-gray-50 dark:prose-pre:bg-gray-900 prose-pre:border prose-pre:border-gray-200 dark:prose-pre:border-gray-700 prose-pre:rounded-lg prose-pre:p-4 prose-blockquote:border-l-4 prose-blockquote:border-gray-300 dark:prose-blockquote:border-gray-600 prose-blockquote:pl-4 prose-blockquote:italic">
               <ReactMarkdown>{content}</ReactMarkdown>
             </div>
           </CardContent>
@@ -145,7 +148,7 @@ export default function GenerationOutput({
       );
     });
 
-    return <div className="space-y-4">{sections}</div>;
+    return <div className="space-y-8">{sections}</div>;
   };
 
   /**
@@ -156,16 +159,16 @@ export default function GenerationOutput({
     const copyState = state.copyStates[sectionId] || 'idle';
 
     return (
-      <Card className="print:shadow-none print:border print:border-gray-300">
-        <CardHeader className="pb-3 print:pb-2">
+      <Card className="group transition-all duration-200 hover:shadow-lg hover:shadow-black/5 dark:hover:shadow-black/20 print:shadow-none print:border print:border-gray-300 print:hover:shadow-none">
+        <CardHeader className="pb-4 print:pb-3">
           <div className="flex items-center justify-between">
-            <CardTitle className="text-lg font-semibold print:text-base print:text-black">Generated Ideas</CardTitle>
+            <CardTitle className="text-xl font-bold tracking-tight text-gray-900 dark:text-white print:text-lg print:text-black">Generated Ideas</CardTitle>
             <Button
               variant="outline"
               size="sm"
               onClick={() => handleCopy(rawOutput, sectionId)}
               disabled={copyState === 'copying'}
-              className="ml-2 print:hidden"
+              className="ml-3 print:hidden transition-all duration-200 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               {copyState === 'copying' && <RefreshCw className="w-4 h-4 mr-2 animate-spin" />}
               {copyState === 'success' && <Check className="w-4 h-4 mr-2 text-green-600" />}
@@ -176,7 +179,7 @@ export default function GenerationOutput({
           </div>
         </CardHeader>
         <CardContent className="print:px-0">
-          <div className="prose prose-sm max-w-none dark:prose-invert print:prose-gray print:text-black">
+          <div className="prose prose-lg max-w-none dark:prose-invert print:prose-gray print:text-black prose-headings:font-bold prose-headings:tracking-tight prose-h1:text-2xl prose-h1:mb-4 prose-h1:mt-6 prose-h2:text-xl prose-h2:mb-3 prose-h2:mt-5 prose-h3:text-lg prose-h3:mb-2 prose-h3:mt-4 prose-p:leading-relaxed prose-p:mb-4 prose-ul:mb-4 prose-ol:mb-4 prose-li:mb-1 prose-code:bg-gray-100 dark:prose-code:bg-gray-800 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm prose-pre:bg-gray-50 dark:prose-pre:bg-gray-900 prose-pre:border prose-pre:border-gray-200 dark:prose-pre:border-gray-700 prose-pre:rounded-lg prose-pre:p-4 prose-blockquote:border-l-4 prose-blockquote:border-gray-300 dark:prose-blockquote:border-gray-600 prose-blockquote:pl-4 prose-blockquote:italic">
             <ReactMarkdown>{rawOutput}</ReactMarkdown>
           </div>
         </CardContent>
@@ -188,28 +191,30 @@ export default function GenerationOutput({
    * Skeleton loader component
    */
   const SkeletonLoader = () => (
-    <div className="space-y-4 animate-pulse">
-      <Card>
-        <CardHeader>
-          <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded w-1/3"></div>
+    <div className="space-y-8 animate-pulse">
+      <Card className="group">
+        <CardHeader className="pb-4">
+          <div className="h-7 bg-gray-200 dark:bg-gray-700 rounded w-1/3"></div>
         </CardHeader>
         <CardContent>
-          <div className="space-y-3">
-            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded"></div>
-            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-5/6"></div>
-            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-4/6"></div>
+          <div className="space-y-4">
+            <div className="h-5 bg-gray-200 dark:bg-gray-700 rounded"></div>
+            <div className="h-5 bg-gray-200 dark:bg-gray-700 rounded w-5/6"></div>
+            <div className="h-5 bg-gray-200 dark:bg-gray-700 rounded w-4/6"></div>
+            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4"></div>
           </div>
         </CardContent>
       </Card>
-      <Card>
-        <CardHeader>
-          <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded w-1/4"></div>
+      <Card className="group">
+        <CardHeader className="pb-4">
+          <div className="h-7 bg-gray-200 dark:bg-gray-700 rounded w-1/4"></div>
         </CardHeader>
         <CardContent>
-          <div className="space-y-3">
-            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded"></div>
-            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4"></div>
-            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-2/3"></div>
+          <div className="space-y-4">
+            <div className="h-5 bg-gray-200 dark:bg-gray-700 rounded"></div>
+            <div className="h-5 bg-gray-200 dark:bg-gray-700 rounded w-3/4"></div>
+            <div className="h-5 bg-gray-200 dark:bg-gray-700 rounded w-2/3"></div>
+            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-4/5"></div>
           </div>
         </CardContent>
       </Card>
@@ -239,13 +244,13 @@ export default function GenerationOutput({
   };
 
   return (
-    <div className={cn("w-full max-w-4xl mx-auto p-6 space-y-6 print:p-4", className)}>
+    <div className={cn("w-full max-w-5xl mx-auto p-8 space-y-8 print:p-6", className)}>
       {/* Header */}
-      <div className="text-center space-y-2 print:mb-6">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white print:text-2xl print:text-black">
+      <div className="text-center space-y-4 print:mb-8">
+        <h1 className="text-4xl font-bold tracking-tight text-gray-900 dark:text-white print:text-3xl print:text-black">
           {domain.charAt(0).toUpperCase() + domain.slice(1)} Ideas Generated
         </h1>
-        <p className="text-gray-600 dark:text-gray-400 print:text-gray-700">
+        <p className="text-lg text-gray-600 dark:text-gray-400 print:text-base print:text-gray-700 max-w-2xl mx-auto leading-relaxed">
           Your personalized ideas based on our conversation
         </p>
       </div>
@@ -262,24 +267,24 @@ export default function GenerationOutput({
 
       {/* Brief Section */}
       {!isLoading && brief && (
-        <Card className="print:shadow-none print:border print:border-gray-300">
+        <Card className="group transition-all duration-200 hover:shadow-lg hover:shadow-black/5 dark:hover:shadow-black/20 print:shadow-none print:border print:border-gray-300 print:hover:shadow-none">
           <Collapsible open={state.isBriefExpanded} onOpenChange={(open) => setState(prev => ({ ...prev, isBriefExpanded: open }))}>
             <CollapsibleTrigger asChild>
               <Button
                 variant="ghost"
-                className="w-full justify-between p-4 h-auto print:hidden"
+                className="w-full justify-between p-6 h-auto print:hidden hover:bg-gray-50 dark:hover:bg-gray-800 transition-all duration-200"
                 onClick={toggleBrief}
               >
-                <span className="font-semibold">Synthesized Brief</span>
+                <span className="font-bold text-lg text-gray-900 dark:text-white">Synthesized Brief</span>
                 {state.isBriefExpanded ? (
-                  <ChevronDown className="w-4 h-4" />
+                  <ChevronDown className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                 ) : (
-                  <ChevronRight className="w-4 h-4" />
+                  <ChevronRight className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                 )}
               </Button>
             </CollapsibleTrigger>
-            <CollapsibleContent className="px-4 pb-4 print:block print:px-0 print:pb-0">
-              <div className="prose prose-sm max-w-none dark:prose-invert text-gray-700 dark:text-gray-300 print:text-black print:prose-gray">
+            <CollapsibleContent className="px-6 pb-6 print:block print:px-0 print:pb-0">
+              <div className="prose prose-lg max-w-none dark:prose-invert text-gray-700 dark:text-gray-300 print:text-black print:prose-gray prose-headings:font-bold prose-headings:tracking-tight prose-h1:text-2xl prose-h1:mb-4 prose-h1:mt-6 prose-h2:text-xl prose-h2:mb-3 prose-h2:mt-5 prose-h3:text-lg prose-h3:mb-2 prose-h3:mt-4 prose-p:leading-relaxed prose-p:mb-4 prose-ul:mb-4 prose-ol:mb-4 prose-li:mb-1 prose-code:bg-gray-100 dark:prose-code:bg-gray-800 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm prose-pre:bg-gray-50 dark:prose-pre:bg-gray-900 prose-pre:border prose-pre:border-gray-200 dark:prose-pre:border-gray-700 prose-pre:rounded-lg prose-pre:p-4 prose-blockquote:border-l-4 prose-blockquote:border-gray-300 dark:prose-blockquote:border-gray-600 prose-blockquote:pl-4 prose-blockquote:italic">
                 <ReactMarkdown>{brief}</ReactMarkdown>
               </div>
             </CollapsibleContent>
@@ -289,7 +294,7 @@ export default function GenerationOutput({
 
       {/* Actions */}
       {!isLoading && (
-        <div className="flex flex-col sm:flex-row gap-4 justify-center print:hidden">
+        <div className="flex flex-col sm:flex-row gap-6 justify-center print:hidden pt-4">
           <Button
             variant="outline"
             onClick={() => {
@@ -298,7 +303,7 @@ export default function GenerationOutput({
                 : JSON.stringify(output, null, 2);
               handleCopy(allContent, 'all-content');
             }}
-            className="flex items-center"
+            className="flex items-center px-6 py-3 transition-all duration-200 hover:bg-gray-50 dark:hover:bg-gray-800 hover:shadow-md"
           >
             <Copy className="w-4 h-4 mr-2" />
             Copy All Content
@@ -306,7 +311,7 @@ export default function GenerationOutput({
           {onStartNewSession && (
             <Button
               onClick={onStartNewSession}
-              className="flex items-center"
+              className="flex items-center px-6 py-3 transition-all duration-200 hover:shadow-md"
             >
               <RefreshCw className="w-4 h-4 mr-2" />
               Start New Session
