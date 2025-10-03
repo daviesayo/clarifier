@@ -103,10 +103,10 @@ export class ValidationError extends Error {
  * Default configuration for the LangChain client
  */
 const DEFAULT_CONFIG: Required<LangChainClientOptions> = {
-  model: 'google/gemini-2.0-flash-exp:free',
+  model: 'google/gemini-2.5-flash',
   temperature: 0.7,
-  maxTokens: 1000,
-  timeout: 30000, // 30 seconds
+  maxTokens: 500, // Reduced for faster responses
+  timeout: 8000, // 8 seconds - faster timeout
 };
 
 /**
@@ -121,7 +121,7 @@ const MAX_HISTORY_LENGTH = 10;
 const RETRY_CONFIG = {
   maxRetries: 2, // Reasonable retry count for normal operation
   initialDelay: 1000, // 1 second
-  maxDelay: 10000, // 10 seconds
+  maxDelay: 3000, // 3 seconds max delay
   backoffMultiplier: 2,
 };
 
