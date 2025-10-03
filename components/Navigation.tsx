@@ -38,6 +38,12 @@ export default function Navigation() {
           <div className="flex items-center space-x-4">
             {user ? (
               <>
+                <Button variant="ghost" asChild>
+                  <Link href="/dashboard">Dashboard</Link>
+                </Button>
+                <Button variant="ghost" asChild>
+                  <Link href="/chat">New Chat</Link>
+                </Button>
                 <span className="text-sm text-gray-700">
                   {user.email}
                 </span>
